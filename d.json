@@ -1,0 +1,30 @@
+{
+    "candidates": [
+        {
+            "content": {
+                "parts": [
+                    {
+                        "text": "{\n    \"action\": \"DO_NOTHING\",\n    \"rationale\": \"The market currently exhibits mixed signals across the preferred timeframes (1m, 5m, and 15m). While the most recent candle closes on these timeframes, and the current market price, show a slight upward bias, there is no strong, sustained momentum confirmed by significant volume, nor a clear breakout from a well-defined consolidation. Given the bot's risk-averse directive and the 'NEUTRAL' market bias, it is prudent to prioritize capital preservation and await more conclusive market action before opening a new position. No position is currently open to manage.\"\n}"
+                    }
+                ],
+                "role": "model"
+            },
+            "finishReason": "STOP",
+            "index": 0
+        }
+    ],
+    "usageMetadata": {
+        "promptTokenCount": 40784,
+        "candidatesTokenCount": 138,
+        "totalTokenCount": 43687,
+        "promptTokensDetails": [
+            {
+                "modality": "TEXT",
+                "tokenCount": 40784
+            }
+        ],
+        "thoughtsTokenCount": 2765
+    },
+    "modelVersion": "models/gemini-2.5-flash-preview-05-20",
+    "responseId": "EO1IaLbyILGlvdIP2NXK2Ak"
+}
