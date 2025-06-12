@@ -402,7 +402,6 @@ if (isset($_SESSION['user_id'])) {
     $view = ($view === 'register') ? 'register' : 'login';
 }
 
-session_write_close();
 ?>
 <!DOCTYPE html>
 <html lang="en">
