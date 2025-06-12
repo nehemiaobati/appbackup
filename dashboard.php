@@ -149,11 +149,16 @@ if (isset($_GET['api'])) {
                 $stmt_ai->execute([$config_id, $current_user_id]);
                 $ai_logs = $stmt_ai->fetchAll();
                 
-                // 6. Calculate derived data
+                // 6. Get Active Strategy
+                $stmt_strategy = $pdo->prepare("SELECT * FROM trade_logic_source WHERE user_id = ? AND is_active = TRUE ORDER BY version DESC LIMIT 1");
+                $stmt_strategy->execute([$current_user_id]);
+                $strategy_data = $stmt_strategy->fetch();
+
+                // 7. Calculate derived data
                 $total_profit = (float)($perf_summary['total_pnl'] ?? 0) - (float)($perf_summary['total_commission'] ?? 0);
                 $win_rate = !empty($perf_summary['trades_executed']) ? (($perf_summary['winning_trades'] / $perf_summary['trades_executed']) * 100) : 0;
                 
-                // 7. Assemble the final payload
+                // 8. Assemble the final payload
                 $data_payload = [
                     'statusInfo' => $bot_status ?: ['status' => 'shutdown', 'process_id' => null, 'last_heartbeat' => null, 'error_message' => null],
                     'performance' => [
@@ -164,7 +169,8 @@ if (isset($_GET['api'])) {
                     ],
                     'recentTrades' => $recent_trades,
                     'aiLogs' => $ai_logs,
-                    'configuration' => $config_data
+                    'configuration' => $config_data,
+                    'strategy' => $strategy_data ?: ['strategy_directives_json' => '{"error": "No active strategy found for this user."}']
                 ];
                 
                 $response = ['status' => 'success', 'data' => $data_payload];
@@ -218,6 +224,43 @@ if (isset($_GET['api'])) {
                 $pdo->commit();
                 
                 $response = ['status' => 'success', 'message' => 'Bot configuration deleted successfully. Redirecting...'];
+                break;
+
+            case 'update_strategy':
+                $strategy_json = $_POST['strategy_json'] ?? '';
+                $strategy_id = (int)($_POST['strategy_id'] ?? 0);
+
+                // Server-side validation
+                $decoded = json_decode($strategy_json);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    throw new Exception("Invalid JSON format provided for the strategy.");
+                }
+
+                // Verify user ownership of the strategy
+                $stmt = $pdo->prepare("SELECT id FROM trade_logic_source WHERE id = ? AND user_id = ?");
+                $stmt->execute([$strategy_id, $current_user_id]);
+                if (!$stmt->fetch()) {
+                    throw new Exception("Strategy not found or permission denied.");
+                }
+
+                $pdo->beginTransaction();
+                $stmt_update = $pdo->prepare("
+                    UPDATE trade_logic_source SET 
+                        strategy_directives_json = :json,
+                        version = version + 1,
+                        last_updated_by = :updater,
+                        last_updated_at_utc = :now
+                    WHERE id = :id AND user_id = :user_id
+                ");
+                $stmt_update->execute([
+                    ':json' => $strategy_json,
+                    ':updater' => 'USER_UI',
+                    ':now' => gmdate('Y-m-d H:i:s'),
+                    ':id' => $strategy_id,
+                    ':user_id' => $current_user_id
+                ]);
+                $pdo->commit();
+                $response = ['status' => 'success', 'message' => 'AI strategy directives updated successfully!'];
                 break;
         }
     } catch (Throwable $e) {
@@ -423,6 +466,11 @@ if (isset($_SESSION['user_id'])) {
         .ai-log-entry { font-size: 0.85rem; border-bottom: 1px solid #eee; padding: 0.5rem 0; }
         .ai-log-entry:last-child { border-bottom: none; }
         .placeholder-glow .placeholder { min-height: 1.5rem; }
+        #strategy-json-editor {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            min-height: 400px;
+        }
     </style>
 </head>
 <body>
@@ -543,6 +591,25 @@ if (isset($_SESSION['user_id'])) {
                                     <div class="col-md-3 col-6"><h6 class="text-muted">Win Rate</h6><h4 id="perf-win-rate"><span class="placeholder col-4"></span></h4></div>
                                     <div class="col-md-3 col-6"><h6 class="text-muted">Last Trade Ago</h6><h4 id="perf-last-trade-ago"><span class="placeholder col-6"></span></h4></div>
                                 </div>
+                            </div>
+                        </div>
+                        
+                        <!-- NEW: AI Strategy Directives Editor -->
+                        <div class="card shadow-sm mb-4">
+                            <div class="card-header"><h5 class="mb-0"><i class="bi bi-diagram-3"></i> AI Strategy Directives</h5></div>
+                            <div class="card-body">
+                                <form id="update-strategy-form">
+                                    <input type="hidden" name="strategy_id" id="strategy-id-input" value="">
+                                    <div class="mb-3">
+                                        <label for="strategy-json-editor" class="form-label">
+                                            Live strategy JSON for <strong id="strategy-name-label">...</strong> (v<span id="strategy-version-label">...</span>). 
+                                            <span class="text-muted">Last updated by <strong id="strategy-updater-label">...</strong> on <span id="strategy-updated-label">...</span></span>
+                                        </label>
+                                        <textarea class="form-control" id="strategy-json-editor" name="strategy_json" rows="15" placeholder="Loading strategy..."></textarea>
+                                        <div class="form-text">Caution: Modifying these directives directly impacts the AI's decision-making process. Ensure the JSON is valid.</div>
+                                    </div>
+                                    <button type="submit" class="btn btn-warning"><i class="bi bi-save"></i> Save Strategy</button>
+                                </form>
                             </div>
                         </div>
 
@@ -728,11 +795,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 tradesBody: document.getElementById('recent-trades-body'),
                 aiLogsContainer: document.getElementById('ai-logs-container'),
                 updateConfigForm: document.getElementById('update-config-form'),
+                // New elements for strategy editor
+                updateStrategyForm: document.getElementById('update-strategy-form'),
+                strategyIdInput: document.getElementById('strategy-id-input'),
+                strategyJsonEditor: document.getElementById('strategy-json-editor'),
+                strategyNameLabel: document.getElementById('strategy-name-label'),
+                strategyVersionLabel: document.getElementById('strategy-version-label'),
+                strategyUpdaterLabel: document.getElementById('strategy-updater-label'),
+                strategyUpdatedLabel: document.getElementById('strategy-updated-label'),
             };
         },
         
         addEventListeners() {
             this.elements.updateConfigForm.addEventListener('submit', (e) => this.handleConfigUpdate(e));
+            this.elements.updateStrategyForm.addEventListener('submit', (e) => this.handleStrategyUpdate(e));
         },
         
         async runUpdateCycle() {
@@ -837,6 +913,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             this.elements.aiLogsContainer.innerHTML = aiLogsHtml;
 
+            // Update strategy editor
+            if (data.strategy && document.activeElement !== this.elements.strategyJsonEditor) {
+                const prettyJson = JSON.stringify(JSON.parse(data.strategy.strategy_directives_json), null, 2);
+                this.elements.strategyJsonEditor.value = prettyJson;
+                this.elements.strategyIdInput.value = data.strategy.id;
+                this.elements.strategyNameLabel.textContent = data.strategy.source_name || 'N/A';
+                this.elements.strategyVersionLabel.textContent = data.strategy.version || 'N/A';
+                this.elements.strategyUpdaterLabel.textContent = data.strategy.last_updated_by || 'N/A';
+                this.elements.strategyUpdatedLabel.textContent = data.strategy.last_updated_at_utc ? new Date(data.strategy.last_updated_at_utc.replace(' ', 'T') + 'Z').toLocaleString() : 'N/A';
+            }
+
+
             this.elements.breadcrumbBotName.textContent = data.configuration.name;
             if(document.activeElement.name !== 'name') {
                  this.elements.updateConfigForm.querySelector('[name="name"]').value = data.configuration.name;
@@ -855,6 +943,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetch(form.action, { method: 'POST', body: new FormData(form) });
                 const data = await response.json();
                 showAlert(data.message, data.status, true);
+            } catch (error) {
+                showAlert('Request failed: ' + error.message, 'danger', true);
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalButtonHtml;
+            }
+        },
+
+        async handleStrategyUpdate(event) {
+            event.preventDefault();
+            const form = event.target;
+            const button = form.querySelector('button[type="submit"]');
+            
+            // Client-side JSON validation
+            try {
+                JSON.parse(this.elements.strategyJsonEditor.value);
+            } catch (e) {
+                showAlert('Invalid JSON format. Please correct it before saving.', 'danger', true);
+                return;
+            }
+
+            const originalButtonHtml = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+
+            try {
+                const response = await fetch('dashboard.php?api=true&action=update_strategy', { method: 'POST', body: new FormData(form) });
+                const data = await response.json();
+                showAlert(data.message, data.status, true);
+                if (data.status === 'success') {
+                    // Trigger an immediate data refresh to show the new version number etc.
+                    this.runUpdateCycle();
+                }
             } catch (error) {
                 showAlert('Request failed: ' + error.message, 'danger', true);
             } finally {

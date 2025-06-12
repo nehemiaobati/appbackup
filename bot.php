@@ -100,6 +100,9 @@ class AiTradingBotFutures
     private LoggerInterface $logger;
     private ?WebSocket $wsConnection = null;
 
+    // --- Exchange Information Cache ---
+    private array $exchangeInfo = [];
+
     // --- State Properties ---
     private ?float $lastClosedKlinePrice = null;
     private ?string $activeEntryOrderId = null;
@@ -317,6 +320,7 @@ class AiTradingBotFutures
     {
         return [
             'schema_version' => '1.0.0', 'strategy_type' => 'GENERAL_TRADING', 'current_market_bias' => 'NEUTRAL',
+            'User prompt' => [],
             'preferred_timeframes_for_entry' => ['1m', '5m', '15m'],
             'key_sr_levels_to_watch' => ['support' => [], 'resistance' => []],
             'risk_parameters' => ['target_risk_per_trade_usdt' => 0.5, 'default_rr_ratio' => 3, 'max_concurrent_positions' => 1],
@@ -528,12 +532,14 @@ class AiTradingBotFutures
         $this->updateBotStatus('initializing');
 
         \React\Promise\all([
+            'exchange_info' => $this->fetchExchangeInfo(), // Fetch exchange info first
             'initial_balance' => $this->getFuturesAccountBalance(),
             'initial_price' => $this->getLatestKlineClosePrice($this->tradingSymbol, $this->klineInterval),
             'initial_position' => $this->getPositionInformation($this->tradingSymbol),
             'listen_key' => $this->startUserDataStream(),
         ])->then(
             function ($results) {
+                $this->exchangeInfo = $results['exchange_info']; // Store exchange info
                 $initialBalance = $results['initial_balance'][$this->marginAsset] ?? ['availableBalance' => 0.0, 'balance' => 0.0];
                 $this->lastClosedKlinePrice = (float)($results['initial_price']['price'] ?? 0);
                 $this->currentPositionDetails = $this->formatPositionDetails($results['initial_position']);
@@ -1280,17 +1286,65 @@ class AiTradingBotFutures
     }
 
 
-    private function getPricePrecisionFormat(string $symbol): string {
-        if (strtoupper($symbol) === 'BTCUSDT') return '%.1f';
-        if (strtoupper($symbol) === 'ETHUSDT') return '%.2f';
-        return '%.8f';
-    }
-    private function getQuantityPrecisionFormat(string $symbol): string {
-        if (strtoupper($symbol) === 'BTCUSDT') return '%.3f';
-        if (strtoupper($symbol) === 'ETHUSDT') return '%.3f';
-        return '%.8f';
+    private function formatPriceByTickSize(string $symbol, float $price): string {
+        $symbolInfo = $this->exchangeInfo[strtoupper($symbol)] ?? null;
+        if (!$symbolInfo || !isset($symbolInfo['tickSize'])) {
+            $this->logger->warning("Tick size not found for {$symbol}. Using default precision.");
+            return sprintf('%.8f', $price); // Fallback to a high precision
+        }
+        $tickSize = (float)$symbolInfo['tickSize'];
+        if ($tickSize <= 0) {
+            $this->logger->warning("Invalid tick size for {$symbol}. Using default precision.");
+            return sprintf('%.8f', $price);
+        }
+        $roundedPrice = round($price / $tickSize) * $tickSize;
+        // Determine the number of decimal places from tickSize
+        $decimals = max(0, strlen(explode('.', (string)$tickSize)[1] ?? ''));
+        return number_format($roundedPrice, $decimals, '.', '');
     }
 
+    private function formatQuantityByStepSize(string $symbol, float $quantity): string {
+        $symbolInfo = $this->exchangeInfo[strtoupper($symbol)] ?? null;
+        if (!$symbolInfo || !isset($symbolInfo['stepSize'])) {
+            $this->logger->warning("Step size not found for {$symbol}. Using default precision.");
+            return sprintf('%.8f', $quantity); // Fallback to a high precision
+        }
+        $stepSize = (float)$symbolInfo['stepSize'];
+        if ($stepSize <= 0) {
+            $this->logger->warning("Invalid step size for {$symbol}. Using default precision.");
+            return sprintf('%.8f', $quantity);
+        }
+        $roundedQuantity = round($quantity / $stepSize) * $stepSize;
+        // Determine the number of decimal places from stepSize
+        $decimals = max(0, strlen(explode('.', (string)$stepSize)[1] ?? ''));
+        return number_format($roundedQuantity, $decimals, '.', '');
+    }
+
+    private function fetchExchangeInfo(): PromiseInterface {
+        $url = $this->currentRestApiBaseUrl . '/fapi/v1/exchangeInfo';
+        return $this->makeAsyncApiRequest('GET', $url, [], null, true)
+            ->then(function ($data) {
+                $exchangeInfo = [];
+                foreach ($data['symbols'] as $symbolInfo) {
+                    $symbol = $symbolInfo['symbol'];
+                    $exchangeInfo[$symbol] = [
+                        'pricePrecision' => (int)$symbolInfo['pricePrecision'],
+                        'quantityPrecision' => (int)$symbolInfo['quantityPrecision'],
+                        'tickSize' => '0.0',
+                        'stepSize' => '0.0',
+                    ];
+                    foreach ($symbolInfo['filters'] as $filter) {
+                        if ($filter['filterType'] === 'PRICE_FILTER') {
+                            $exchangeInfo[$symbol]['tickSize'] = $filter['tickSize'];
+                        } elseif ($filter['filterType'] === 'LOT_SIZE') {
+                            $exchangeInfo[$symbol]['stepSize'] = $filter['stepSize'];
+                        }
+                    }
+                }
+                $this->logger->info("Exchange information fetched and cached for " . count($exchangeInfo) . " symbols.");
+                return $exchangeInfo;
+            });
+    }
 
     private function getFuturesAccountBalance(): PromiseInterface {
         $signedRequestData = $this->createSignedRequestData('/fapi/v2/balance', [], 'GET');
@@ -1354,8 +1408,8 @@ class AiTradingBotFutures
             'side' => strtoupper($side),
             'positionSide' => strtoupper($positionSide),
             'type' => 'LIMIT',
-            'quantity' => sprintf($this->getQuantityPrecisionFormat($symbol), $quantity),
-            'price' => sprintf($this->getPricePrecisionFormat($symbol), $price),
+            'quantity' => $this->formatQuantityByStepSize($symbol, $quantity),
+            'price' => $this->formatPriceByTickSize($symbol, $price),
             'timeInForce' => $timeInForce,
         ];
         if ($reduceOnly) $params['reduceOnly'] = 'true';
@@ -1375,7 +1429,7 @@ class AiTradingBotFutures
             'side' => strtoupper($side),
             'positionSide' => strtoupper($positionSide),
             'type' => 'MARKET',
-            'quantity' => sprintf($this->getQuantityPrecisionFormat($symbol), $quantity),
+            'quantity' => $this->formatQuantityByStepSize($symbol, $quantity),
         ];
         if ($reduceOnly) $params['reduceOnly'] = 'true';
         $this->logger->debug("Placing Market Order", $params);
@@ -1394,8 +1448,8 @@ class AiTradingBotFutures
             'side' => strtoupper($side),
             'positionSide' => strtoupper($positionSide),
             'type' => 'STOP_MARKET',
-            'quantity' => sprintf($this->getQuantityPrecisionFormat($symbol), $quantity),
-            'stopPrice' => sprintf($this->getPricePrecisionFormat($symbol), $stopPrice),
+            'quantity' => $this->formatQuantityByStepSize($symbol, $quantity),
+            'stopPrice' => $this->formatPriceByTickSize($symbol, $stopPrice),
             'reduceOnly' => $reduceOnly ? 'true' : 'false',
             'workingType' => 'MARK_PRICE'
         ];
@@ -1415,8 +1469,8 @@ class AiTradingBotFutures
             'side' => strtoupper($side),
             'positionSide' => strtoupper($positionSide),
             'type' => 'TAKE_PROFIT_MARKET',
-            'quantity' => sprintf($this->getQuantityPrecisionFormat($symbol), $quantity),
-            'stopPrice' => sprintf($this->getPricePrecisionFormat($symbol), $stopPrice),
+            'quantity' => $this->formatQuantityByStepSize($symbol, $quantity),
+            'stopPrice' => $this->formatPriceByTickSize($symbol, $stopPrice),
             'reduceOnly' => $reduceOnly ? 'true' : 'false',
             'workingType' => 'MARK_PRICE'
         ];
@@ -1533,9 +1587,9 @@ class AiTradingBotFutures
                 'market_data' => [
                     'current_market_price' => $this->lastClosedKlinePrice,
                     'symbol_precision' => [
-                        'price_precision_format' => $this->getPricePrecisionFormat($this->tradingSymbol),
-                        'quantity_precision_format' => $this->getQuantityPrecisionFormat($this->tradingSymbol),
-                        'comment' => 'All price and quantity values in your response MUST conform to these formats.'
+                        'price_tick_size' => $this->exchangeInfo[$this->tradingSymbol]['tickSize'] ?? '0.0',
+                        'quantity_step_size' => $this->exchangeInfo[$this->tradingSymbol]['stepSize'] ?? '0.0',
+                        'comment' => 'All price and quantity values in your response MUST be multiples of these sizes and formatted accordingly.'
                     ],
                     'historical_klines_multi_tf' => $results['historical_klines'],
                     'commission_rates' => $results['commission_rates']
@@ -1557,7 +1611,7 @@ class AiTradingBotFutures
                     'recent_bot_order_log_outcomes' => $dbOrderLogs,
                     'recent_ai_interactions' => $dbRecentAIInteractions
                 ],
-                'current_guiding_trade_logic_source' => $this->currentActiveTradeLogicSource,
+                'current_guiding_trade_logic_source' => $this->currentActiveTradeLogicSource['strategy_directives_json'] ?? null,
                 'bot_configuration_summary_for_ai' => [
                     'initialMarginTargetUsdt' => $this->initialMarginTargetUsdt,
                     'takeProfitTargetUsdt' => $this->takeProfitTargetUsdt,
@@ -1568,95 +1622,326 @@ class AiTradingBotFutures
         });
     }
 
-    private function constructAIPrompt(array $fullDataForAI, bool $isEmergency): string
+    private function constructAIPrompt(array $fullDataForAI): string
     {
-        $allowSelfUpdate = $fullDataForAI['current_guiding_trade_logic_source']['strategy_directives']['allow_ai_to_update_self'] ?? false;
+        // 1. Determine the bot's operational mode from the strategy directives.
+        $strategyDirectives = $fullDataForAI['current_guiding_trade_logic_source']['strategy_directives'] ?? [];
+        $quantityMethod = $strategyDirectives['quantity_determination_method'] ?? 'AI_SUGGESTED';
+        $allowSelfUpdate = $strategyDirectives['allow_ai_to_update_self'] ?? false;
 
-        $basePromptText = <<<PROMPT
-You are a meticulous, risk-averse, and highly disciplined automated trading model for Binance Futures. Your primary directive is capital preservation, followed by profitable trading.
+        // 2. Build the prompt from modular, unbiased blocks.
+        $promptParts = [];
 
-**CRITICAL INSTRUCTIONS:**
-1.  **Risk First:** If `is_emergency_update_request` is `true` or `bot_operational_state.is_position_unprotected` is `true`, your absolute priority is to mitigate risk. The `CLOSE_POSITION` action is almost always the correct response.
-2.  **Strict JSON Output:** Your entire response MUST be a single, valid JSON object. Do not include any explanatory text, markdown, or any characters outside of the JSON structure.
-3.  **Precision is CRITICAL:** All `price` and `quantity` values MUST respect the exact decimal places required by the exchange, as specified in `market_data.symbol_precision`. An order with incorrect precision (e.g., `quantity: 0.12345` when only 3 decimal places are allowed) will be REJECTED by the API, causing a failed trade. This is non-negotiable.
+        // --- PART A: The Unchanging Core Instructions ---
+        $promptParts[] = <<<PROMPT
+You are a trading decision model. Your sole function is to analyze the provided JSON context and return a single, valid JSON action. You must operate exclusively within the rules defined in this prompt.
 
-**TASK:**
-Analyze the following comprehensive market and bot state data. Based on your analysis and the specific operating mode outlined below, select ONE action and formulate your response in the precise JSON format specified.
-
-**CONTEXT (JSON):**
-{{CONTEXT_JSON}}
-
+**CRITICAL RULES:**
+1.  **Strict JSON Output:** Your entire response MUST be a single, valid JSON object without any markdown, comments, or extraneous text.
+2.  **Mandatory Precision:** All `price` and `quantity` values in your response MUST conform to the exact decimal precision specified in `market_data.symbol_precision`. Failure to do so will result in a rejected order. This is a non-negotiable, critical instruction.
 PROMPT;
 
-        $modeSpecificInstructions = '';
-        if ($allowSelfUpdate) {
-            $modeSpecificInstructions = <<<PROMPT
-**OPERATING MODE: ADAPTIVE STRATEGY**
-You have full autonomy. You can suggest trade parameters and, if necessary, suggest improvements to the guiding strategy itself.
+        // --- PART B: Scenario-Specific Instructions based on Strategy ---
+        $actionsAndFormats = '';
 
-**ACTIONS & JSON FORMATS:**
-1.  **OPEN_POSITION**:
+        // --- SCENARIO 1: Full Autonomy (AI Suggests Quantity & Can Update Strategy) ---
+        if ($quantityMethod === 'AI_SUGGESTED' && $allowSelfUpdate) {
+            $actionsAndFormats = <<<PROMPT
+**OPERATING MODE: ADAPTIVE (AI Quantity, Self-Improving Strategy)**
+
+**AVAILABLE ACTIONS & JSON RESPONSE FORMAT:**
+
+1.  **OPEN_POSITION**: Initiate a new trade.
     - `action`: "OPEN_POSITION"
     - `leverage`: (integer)
     - `side`: "BUY" or "SELL"
-    - `entryPrice`: (float, must respect precision)
-    - `quantity`: You determine the appropriate trade size, but you **MUST** format the final number to the precision specified in `market_data.symbol_precision`.
-    - `stopLossPrice`: (float, must respect precision)
-    - `takeProfitPrice`: (float, must respect precision)
-    - `rationale`: (string)
-    *Example (NOTE: all numbers use the correct precision for the asset):*
-    `{"action":"OPEN_POSITION","leverage":10,"side":"BUY","entryPrice":69100.50,"quantity":0.015,"stopLossPrice":68800.00,"takeProfitPrice":70000.00,"rationale":"Breakout above recent consolidation with volume confirmation."}`
+    - `entryPrice`: (float, respecting precision)
+    - `quantity`: (float, your calculated value, respecting precision)
+    - `stopLossPrice`: (float, respecting precision)
+    - `takeProfitPrice`: (float, respecting precision)
+    - `rationale`: (string, brief justification)
+    **Example:**
+    ```json
+    {
+      "action": "OPEN_POSITION",
+      "leverage": 10,
+      "side": "BUY",
+      "entryPrice": 29000.0,
+      "quantity": 0.001,
+      "stopLossPrice": 28500.0,
+      "takeProfitPrice": 29500.0,
+      "rationale": "Price action indicates strong bullish momentum after retesting support."
+    }
+    ```
 
-2.  **CLOSE_POSITION**:
+2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "CLOSE_POSITION",
+      "rationale": "Reached take profit target and market shows signs of reversal."
+    }
+    ```
 
-3.  **HOLD_POSITION** / **DO_NOTHING**:
+3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
+    }
+    ```
 
-**STRATEGY UPDATE SUGGESTION (Optional, this mode only):**
-If your analysis indicates the `current_guiding_trade_logic_source` is flawed, you may add the `suggested_strategy_directives_update` key to your response. This does NOT replace the main action.
-    - `suggested_strategy_directives_update`:
-        - `reason_for_update`: (string)
-        - `updated_directives`: A complete JSON object for the new `strategy_directives`.
-
-Now, provide your decision as a single JSON object.
+**OPTIONAL STRATEGY UPDATE:**
+If your analysis indicates the `current_guiding_trade_logic_source` is flawed, you MAY add the `suggested_strategy_directives_update` key to your response. This does NOT replace the main `action`.
+- `suggested_strategy_directives_update`:
+    - `reason_for_update`: (string)
+    - `updated_directives`: A complete JSON object for the new `strategy_directives`.
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "No immediate trade, but strategy needs refinement.",
+      "suggested_strategy_directives_update": {
+        "reason_for_update": "Adjusting risk parameters based on recent volatility.",
+        "updated_directives": {
+          "schema_version": "1.0.0",
+          "strategy_type": "GENERAL_TRADING",
+          "current_market_bias": "NEUTRAL",
+          "User prompt": [],
+          "preferred_timeframes_for_entry": ["1m", "5m", "15m"],
+          "key_sr_levels_to_watch": {"support": [], "resistance": []},
+          "risk_parameters": {"target_risk_per_trade_usdt": 0.75, "default_rr_ratio": 2.5, "max_concurrent_positions": 1},
+          "quantity_determination_method": "AI_SUGGESTED",
+          "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"],
+          "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"],
+          "leverage_preference": {"min": 5, "max": 10, "preferred": 10},
+          "ai_confidence_threshold_for_trade": 0.7,
+          "ai_learnings_notes": "Adjusted risk per trade and R:R ratio.",
+          "allow_ai_to_update_self": true,
+          "emergency_hold_justification": "Wait for clear market signal or manual intervention."
+        }
+      }
+    }
+    ```
 PROMPT;
-        } else {
-            $modeSpecificInstructions = <<<PROMPT
-**OPERATING MODE: FIXED STRATEGY**
-You must operate strictly within the provided `current_guiding_trade_logic_source` and `bot_configuration_summary_for_ai`. You CANNOT suggest changes to the strategy.
+        }
+        // --- SCENARIO 2: AI Suggests Quantity, but Strategy is Fixed ---
+        elseif ($quantityMethod === 'AI_SUGGESTED' && !$allowSelfUpdate) {
+            $actionsAndFormats = <<<PROMPT
+**OPERATING MODE: TACTICAL (AI Quantity, Fixed Strategy)**
 
-**ACTIONS & JSON FORMATS:**
-1.  **OPEN_POSITION**:
+**AVAILABLE ACTIONS & JSON RESPONSE FORMAT:**
+
+1.  **OPEN_POSITION**: Initiate a new trade.
     - `action`: "OPEN_POSITION"
     - `leverage`: (integer)
     - `side`: "BUY" or "SELL"
-    - `entryPrice`: (float, must respect precision)
-    - `quantity`: **MANDATORY CALCULATION AND FORMATTING.** You MUST calculate this value using `(bot_configuration_summary_for_ai.initialMarginTargetUsdt * leverage) / entryPrice`, and then you **MUST** format the final result to the correct precision specified in `market_data.symbol_precision`.
-    - `stopLossPrice`: (float, must respect precision)
-    - `takeProfitPrice`: (float, must respect precision)
-    - `rationale`: (string)
-    *Example (NOTE: all numbers use the correct precision for the asset):*
-    `{"action":"OPEN_POSITION","leverage":10,"side":"BUY","entryPrice":69100.50,"quantity":0.015,"stopLossPrice":68800.00,"takeProfitPrice":70000.00,"rationale":"Breakout above recent consolidation with volume confirmation."}`
+    - `entryPrice`: (float, respecting precision)
+    - `quantity`: (float, your calculated value, respecting precision)
+    - `stopLossPrice`: (float, respecting precision)
+    - `takeProfitPrice`: (float, respecting precision)
+    - `rationale`: (string, brief justification)
+    **Example:**
+    ```json
+    {
+      "action": "OPEN_POSITION",
+      "leverage": 10,
+      "side": "BUY",
+      "entryPrice": 29000.0,
+      "quantity": 0.001,
+      "stopLossPrice": 28500.0,
+      "takeProfitPrice": 29500.0,
+      "rationale": "Price action indicates strong bullish momentum after retesting support."
+    }
+    ```
 
-2.  **CLOSE_POSITION**:
+2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "CLOSE_POSITION",
+      "rationale": "Reached take profit target and market shows signs of reversal."
+    }
+    ```
 
-3.  **HOLD_POSITION** / **DO_NOTHING**:
+3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
+    }
+    ```
 
-**RESTRICTION:** You MUST NOT suggest strategy updates.
+**RESTRICTION:** You are forbidden from suggesting strategy updates.
+PROMPT;
+        }
+        // --- SCENARIO 3: Fixed Quantity Calculation, but Strategy Can Be Updated ---
+        elseif ($quantityMethod === 'INITIAL_MARGIN_TARGET' && $allowSelfUpdate) {
+             $actionsAndFormats = <<<PROMPT
+**OPERATING MODE: MECHANICAL (Fixed Quantity, Self-Improving Strategy)**
 
-Now, provide your decision as a single JSON object.
+**AVAILABLE ACTIONS & JSON RESPONSE FORMAT:**
+
+1.  **OPEN_POSITION**: Initiate a new trade.
+    - `action`: "OPEN_POSITION"
+    - `leverage`: (integer)
+    - `side`: "BUY" or "SELL"
+    - `entryPrice`: (float, respecting precision)
+    - `quantity`: (float, **MANDATORY CALCULATION**: You must calculate this value using the formula `(bot_configuration_summary_for_ai.initialMarginTargetUsdt * leverage) / entryPrice`, and then format the result to the required precision.)
+    - `stopLossPrice`: (float, respecting precision)
+    - `takeProfitPrice`: (float, respecting precision)
+    - `rationale`: (string, brief justification)
+    **Example:**
+    ```json
+    {
+      "action": "OPEN_POSITION",
+      "leverage": 10,
+      "side": "BUY",
+      "entryPrice": 29000.0,
+      "quantity": 0.001,
+      "stopLossPrice": 28500.0,
+      "takeProfitPrice": 29500.0,
+      "rationale": "Price action indicates strong bullish momentum after retesting support."
+    }
+    ```
+
+2.  **CLOSE_POSITION**: Close the existing position at market price.
+    - `action`: "CLOSE_POSITION"
+    - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "CLOSE_POSITION",
+      "rationale": "Reached take profit target and market shows signs of reversal."
+    }
+    ```
+
+3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
+    - `action`: "HOLD_POSITION" or "DO_NOTHING"
+    - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
+    }
+    ```
+
+**OPTIONAL STRATEGY UPDATE:**
+If your analysis indicates the `current_guiding_trade_logic_source` is flawed, you MAY add the `suggested_strategy_directives_update` key to your response. This does NOT replace the main `action`.
+- `suggested_strategy_directives_update`:
+    - `reason_for_update`: (string)
+    - `updated_directives`: A complete JSON object for the new `strategy_directives`.
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "No immediate trade, but strategy needs refinement.",
+      "suggested_strategy_directives_update": {
+        "reason_for_update": "Adjusting risk parameters based on recent volatility.",
+        "updated_directives": {
+          "schema_version": "1.0.0",
+          "strategy_type": "GENERAL_TRADING",
+          "current_market_bias": "NEUTRAL",
+          "User prompt": [],
+          "preferred_timeframes_for_entry": ["1m", "5m", "15m"],
+          "key_sr_levels_to_watch": {"support": [], "resistance": []},
+          "risk_parameters": {"target_risk_per_trade_usdt": 0.75, "default_rr_ratio": 2.5, "max_concurrent_positions": 1},
+          "quantity_determination_method": "INITIAL_MARGIN_TARGET",
+          "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"],
+          "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"],
+          "leverage_preference": {"min": 5, "max": 10, "preferred": 10},
+          "ai_confidence_threshold_for_trade": 0.7,
+          "ai_learnings_notes": "Adjusted risk per trade and R:R ratio.",
+          "allow_ai_to_update_self": true,
+          "emergency_hold_justification": "Wait for clear market signal or manual intervention."
+        }
+      }
+    }
+    ```
+PROMPT;
+        }
+        // --- SCENARIO 4: Most Constrained (Fixed Quantity, Fixed Strategy) ---
+        else { // ($quantityMethod === 'INITIAL_MARGIN_TARGET' && !$allowSelfUpdate)
+             $actionsAndFormats = <<<PROMPT
+**OPERATING MODE: EXECUTOR (Fixed Quantity, Fixed Strategy)**
+
+**AVAILABLE ACTIONS & JSON RESPONSE FORMAT:**
+
+1.  **OPEN_POSITION**: Initiate a new trade.
+    - `action`: "OPEN_POSITION"
+    - `leverage`: (integer)
+    - `side`: "BUY" or "SELL"
+    - `entryPrice`: (float, respecting precision)
+    - `quantity`: (float, **MANDATORY CALCULATION**: You must calculate this value using the formula `(bot_configuration_summary_for_ai.initialMarginTargetUsdt * leverage) / entryPrice`, and then format the result to the required precision.)
+    - `stopLossPrice`: (float, respecting precision)
+    - `takeProfitPrice`: (float, respecting precision)
+    - `rationale`: (string, brief justification)
+    **Example:**
+    ```json
+    {
+      "action": "OPEN_POSITION",
+      "leverage": 10,
+      "side": "BUY",
+      "entryPrice": 29000.0,
+      "quantity": 0.001,
+      "stopLossPrice": 28500.0,
+      "takeProfitPrice": 29500.0,
+      "rationale": "Price action indicates strong bullish momentum after retesting support."
+    }
+    ```
+
+2.  **CLOSE_POSITION**: Close the existing position at market price.
+    - `action`: "CLOSE_POSITION"
+    - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "CLOSE_POSITION",
+      "rationale": "Reached take profit target and market shows signs of reversal."
+    }
+    ```
+
+3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
+    - `action`: "HOLD_POSITION" or "DO_NOTHING"
+    - `rationale`: (string)
+    **Example:**
+    ```json
+    {
+      "action": "HOLD_POSITION",
+      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
+    }
+    ```
+
+**RESTRICTION:** You are forbidden from suggesting strategy updates.
 PROMPT;
         }
 
-        $contextJson = json_encode($fullDataForAI, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE);
-        $finalPromptText = str_replace('{{CONTEXT_JSON}}', $contextJson, $basePromptText) . $modeSpecificInstructions;
+        $promptParts[] = $actionsAndFormats;
+
+        // --- PART C: The Context and Final Instruction ---
+        $promptParts[] = <<<PROMPT
+**CONTEXT (JSON):**
+{{CONTEXT_JSON}}
+
+Based on the rules for your current operating mode and the context provided, return your decision as a single JSON object.
+PROMPT;
+
+
+        // 3. Assemble and finalize the prompt payload.
+        $finalPromptText = implode("\n\n", $promptParts);
+        $contextJson = json_encode($fullDataForAI, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE);
+        $finalPromptText = str_replace('{{CONTEXT_JSON}}', $contextJson, $finalPromptText);
 
         return json_encode([
             'contents' => [['parts' => [['text' => $finalPromptText]]]],
