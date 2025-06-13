@@ -1,6 +1,3 @@
-
---- START OF FILE p2profit_user_based_db.sql ---
-
 -- P2Profit - User-Based Trading Bot Database Schema
 -- Version: 2.0
 -- A production-ready, relational schema for a multi-user trading bot system.
@@ -9,184 +6,360 @@ SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
 
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!400101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
 --
--- Database: `p2profit_bot_db`
+-- Database: `server_new`
 --
 
 -- --------------------------------------------------------
 
 --
--- Table structure for table `users`
--- The central table for all users of the platform.
+-- Table: `ai_interactions_log`
+-- Description: Logs all interactions and decisions made by the AI for each bot configuration.
+-- Key Columns:
+--   - `id`: Unique identifier for each AI interaction log entry.
+--   - `user_id`: Links to the user who owns the bot.
+--   - `bot_config_id`: Links to the specific bot configuration.
+--   - `log_timestamp_utc`: Timestamp of the AI interaction.
+--   - `trading_symbol`: The trading pair the AI interacted with.
+--   - `executed_action_by_bot`: The action taken by the bot based on AI's decision.
+--   - `ai_decision_params_json`: JSON blob of parameters used in AI's decision.
+--   - `raw_ai_response_json`: Raw JSON response from the AI.
 --
-CREATE TABLE IF NOT EXISTS `users` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `email` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `role` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT 'user' COMMENT 'e.g., admin, user',
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `last_login` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `username` (`username`),
-  UNIQUE KEY `email` (`email`)
+CREATE TABLE `ai_interactions_log` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `bot_config_id` int(11) NOT NULL,
+  `log_timestamp_utc` datetime NOT NULL,
+  `trading_symbol` varchar(20) NOT NULL,
+  `executed_action_by_bot` varchar(100) NOT NULL,
+  `ai_decision_params_json` text DEFAULT NULL,
+  `bot_feedback_json` text DEFAULT NULL,
+  `full_data_for_ai_json` mediumtext DEFAULT NULL,
+  `prompt_text_sent_to_ai_md5` char(32) DEFAULT NULL,
+  `raw_ai_response_json` text DEFAULT NULL,
+  `created_at_db` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
 --
--- Table structure for table `user_api_keys`
--- Securely stores encrypted API keys for each user. A user can have multiple sets.
+-- Table: `bot_configurations`
+-- Description: Stores the configuration settings for each trading bot created by users.
+-- Key Columns:
+--   - `id`: Unique identifier for each bot configuration.
+--   - `user_id`: Links to the user who owns this configuration.
+--   - `user_api_key_id`: Links to the API keys used by this bot.
+--   - `name`: User-defined name for the bot.
+--   - `symbol`: The primary trading symbol (e.g., BTCUSDT).
+--   - `is_active`: Indicates if the bot configuration is currently active.
 --
-CREATE TABLE IF NOT EXISTS `user_api_keys` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
-  `key_name` VARCHAR(100) NOT NULL COMMENT 'e.g., "My Main Binance Key", "Testnet Key"',
-  `binance_api_key_encrypted` TEXT COLLATE utf8mb4_unicode_ci NOT NULL,
-  `binance_api_secret_encrypted` TEXT COLLATE utf8mb4_unicode_ci NOT NULL,
-  `gemini_api_key_encrypted` TEXT COLLATE utf8mb4_unicode_ci NOT NULL,
-  `is_active` BOOLEAN NOT NULL DEFAULT TRUE,
-  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_user_id` (`user_id`),
-  CONSTRAINT `fk_api_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
--- --------------------------------------------------------
-
---
--- Table structure for table `bot_configurations`
--- Each bot configuration belongs to a specific user and uses one of their API key sets.
---
-CREATE TABLE IF NOT EXISTS `bot_configurations` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
-  `user_api_key_id` int NOT NULL,
-  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `symbol` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'BTCUSDT',
-  `kline_interval` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '1m',
-  `margin_asset` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'USDT',
-  `default_leverage` int NOT NULL DEFAULT '10',
-  `order_check_interval_seconds` int NOT NULL DEFAULT '45',
-  `ai_update_interval_seconds` int NOT NULL DEFAULT '60',
-  `use_testnet` tinyint(1) NOT NULL DEFAULT '1',
-  `initial_margin_target_usdt` decimal(20,8) NOT NULL DEFAULT '10.50000000',
-  `take_profit_target_usdt` decimal(20,8) NOT NULL DEFAULT '0.00000000',
-  `pending_entry_order_cancel_timeout_seconds` int NOT NULL DEFAULT '180',
-  `profit_check_interval_seconds` int NOT NULL DEFAULT '60',
-  `is_active` tinyint(1) NOT NULL DEFAULT '0',
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_config_name` (`user_id`, `name`),
-  KEY `idx_user_id` (`user_id`),
-  KEY `idx_user_api_key_id` (`user_api_key_id`),
-  CONSTRAINT `fk_config_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_config_api_key` FOREIGN KEY (`user_api_key_id`) REFERENCES `user_api_keys` (`id`) ON DELETE CASCADE
+CREATE TABLE `bot_configurations` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `user_api_key_id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `symbol` varchar(20) NOT NULL DEFAULT 'BTCUSDT',
+  `kline_interval` varchar(10) NOT NULL DEFAULT '1m',
+  `margin_asset` varchar(10) NOT NULL DEFAULT 'USDT',
+  `default_leverage` int(11) NOT NULL DEFAULT 10,
+  `order_check_interval_seconds` int(11) NOT NULL DEFAULT 45,
+  `ai_update_interval_seconds` int(11) NOT NULL DEFAULT 60,
+  `use_testnet` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 for testnet, 0 for mainnet',
+  `initial_margin_target_usdt` decimal(20,8) NOT NULL DEFAULT 10.50000000,
+  `take_profit_target_usdt` decimal(20,8) NOT NULL DEFAULT 0.00000000,
+  `pending_entry_order_cancel_timeout_seconds` int(11) NOT NULL DEFAULT 180,
+  `profit_check_interval_seconds` int(11) NOT NULL DEFAULT 60,
+  `is_active` tinyint(1) NOT NULL DEFAULT 0,
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
 --
--- Table structure for table `bot_runtime_status`
--- Tracks the live status of each bot process. Linked via bot_config_id.
+-- Table: `bot_runtime_status`
+-- Description: Stores the current runtime status and operational details of each bot.
+-- Key Columns:
+--   - `id`: Unique identifier for the runtime status entry.
+--   - `bot_config_id`: Links to the bot configuration this status belongs to.
+--   - `status`: Current operational status of the bot (e.g., 'running', 'stopped', 'error').
+--   - `last_heartbeat`: Timestamp of the last known activity from the bot process.
+--   - `error_message`: Details of any errors encountered by the bot.
+--   - `current_position_details_json`: JSON blob of current open positions.
 --
-CREATE TABLE IF NOT EXISTS `bot_runtime_status` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `bot_config_id` int NOT NULL,
-  `status` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+CREATE TABLE `bot_runtime_status` (
+  `id` int(11) NOT NULL,
+  `bot_config_id` int(11) NOT NULL,
+  `status` varchar(50) NOT NULL COMMENT 'Current operational status (e.g., running, stopped, error)',
   `last_heartbeat` datetime DEFAULT NULL,
-  `process_id` int DEFAULT NULL,
-  `error_message` text COLLATE utf8mb4_unicode_ci,
-  `current_position_details_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
-  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `bot_config_id` (`bot_config_id`),
-  KEY `idx_status` (`status`),
-  CONSTRAINT `fk_status_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE
+  `process_id` int(11) DEFAULT NULL,
+  `error_message` text DEFAULT NULL,
+  `current_position_details_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
 --
--- Table structure for table `orders_log`
--- Logs all order events, clearly tagged with a user_id for frontend queries.
+-- Table: `orders_log`
+-- Description: Records all trading orders executed or attempted by the bots.
+-- Key Columns:
+--   - `internal_id`: Unique internal identifier for each order log entry.
+--   - `user_id`: Links to the user who initiated the order.
+--   - `bot_config_id`: Links to the bot configuration that placed the order.
+--   - `order_id_binance`: The order ID provided by the exchange (e.g., Binance).
+--   - `symbol`: The trading pair of the order.
+--   - `side`: The order side (e.g., 'BUY', 'SELL').
+--   - `status_reason`: The status or reason for the order entry.
+--   - `realized_pnl_usdt`: Profit/Loss in USDT for closed orders.
 --
-CREATE TABLE IF NOT EXISTS `orders_log` (
-  `internal_id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
-  `bot_config_id` int NOT NULL,
-  `order_id_binance` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+CREATE TABLE `orders_log` (
+  `internal_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `bot_config_id` int(11) NOT NULL,
+  `order_id_binance` varchar(50) DEFAULT NULL,
   `bot_event_timestamp_utc` datetime NOT NULL,
-  `symbol` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `side` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status_reason` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `symbol` varchar(20) NOT NULL,
+  `side` varchar(10) NOT NULL COMMENT 'Order side (e.g., BUY, SELL)',
+  `status_reason` varchar(100) NOT NULL,
   `price_point` decimal(20,8) DEFAULT NULL,
   `quantity_involved` decimal(20,8) DEFAULT NULL,
-  `margin_asset` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `margin_asset` varchar(10) DEFAULT NULL,
   `realized_pnl_usdt` decimal(20,8) DEFAULT NULL,
   `commission_usdt` decimal(20,8) DEFAULT NULL,
-  `created_at_db` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`internal_id`),
-  KEY `idx_user_id` (`user_id`),
-  KEY `idx_bot_config_id` (`bot_config_id`),
-  KEY `idx_symbol_timestamp` (`symbol`,`bot_event_timestamp_utc`),
-  KEY `idx_order_id_binance` (`order_id_binance`),
-  CONSTRAINT `fk_order_log_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_order_log_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE
+  `reduce_only` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 if order reduces position, 0 otherwise',
+  `created_at_db` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
 --
--- Table structure for table `ai_interactions_log`
--- Logs all AI interactions, tagged with user_id.
+-- Table: `trade_logic_source`
+-- Description: Stores different AI trading strategies or logic sources that bots can use.
+-- Key Columns:
+--   - `id`: Unique identifier for each trade logic source.
+--   - `user_id`: Links to the user who created/owns this logic.
+--   - `source_name`: A descriptive name for the trading logic.
+--   - `is_active`: Indicates if this logic source is currently active and usable.
+--   - `strategy_directives_json`: JSON blob containing the detailed strategy directives for the AI.
 --
-CREATE TABLE IF NOT EXISTS `ai_interactions_log` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
-  `bot_config_id` int NOT NULL,
-  `log_timestamp_utc` datetime NOT NULL,
-  `trading_symbol` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `executed_action_by_bot` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `ai_decision_params_json` text COLLATE utf8mb4_unicode_ci,
-  `bot_feedback_json` text COLLATE utf8mb4_unicode_ci,
-  `full_data_for_ai_json` mediumtext COLLATE utf8mb4_unicode_ci,
-  `prompt_text_sent_to_ai_md5` char(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `raw_ai_response_json` text COLLATE utf8mb4_unicode_ci,
-  `created_at_db` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_user_id` (`user_id`),
-  KEY `idx_bot_config_id` (`bot_config_id`),
-  KEY `idx_symbol_timestamp_action` (`trading_symbol`,`log_timestamp_utc`),
-  CONSTRAINT `fk_ai_log_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_ai_log_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `trade_logic_source`
--- Trading strategies, now owned by users.
---
-CREATE TABLE IF NOT EXISTS `trade_logic_source` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `user_id` int NOT NULL,
-  `source_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT '0',
-  `version` int NOT NULL DEFAULT '1',
-  `last_updated_by` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+CREATE TABLE `trade_logic_source` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `source_name` varchar(100) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 if the trade logic is active, 0 otherwise',
+  `version` int(11) NOT NULL DEFAULT 1,
+  `last_updated_by` varchar(50) DEFAULT NULL,
   `last_updated_at_utc` datetime DEFAULT NULL,
-  `strategy_directives_json` text COLLATE utf8mb4_unicode_ci NOT NULL,
-  `full_data_snapshot_at_last_update_json` mediumtext COLLATE utf8mb4_unicode_ci,
-  `created_at_db` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_user_source_name` (`user_id`, `source_name`),
-  KEY `idx_user_id` (`user_id`),
-  CONSTRAINT `fk_trade_logic_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+  `strategy_directives_json` text NOT NULL,
+  `full_data_snapshot_at_last_update_json` mediumtext DEFAULT NULL,
+  `created_at_db` timestamp NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table: `users`
+-- Description: Stores user account information for the trading bot platform.
+-- Key Columns:
+--   - `id`: Unique identifier for each user.
+--   - `username`: Unique username for login.
+--   - `password_hash`: Hashed password for security.
+--   - `email`: User's email address.
+--   - `role`: User's role (e.g., 'admin', 'user').
+--
+CREATE TABLE `users` (
+  `id` int(11) NOT NULL,
+  `username` varchar(50) NOT NULL,
+  `password_hash` varchar(255) NOT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `role` varchar(20) DEFAULT 'user' COMMENT 'e.g., admin, user',
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `last_login` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table: `user_api_keys`
+-- Description: Stores encrypted API keys for various exchanges (e.g., Binance, Gemini) for each user.
+-- Key Columns:
+--   - `id`: Unique identifier for each API key entry.
+--   - `user_id`: Links to the user who owns these API keys.
+--   - `key_name`: A user-friendly name for the API key set.
+--   - `binance_api_key_encrypted`: Encrypted Binance API key.
+--   - `binance_api_secret_encrypted`: Encrypted Binance API secret.
+--   - `gemini_api_key_encrypted`: Encrypted Gemini API key.
+--   - `is_active`: Indicates if the API key set is currently active.
+--
+CREATE TABLE `user_api_keys` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `key_name` varchar(100) NOT NULL COMMENT 'e.g., "My Main Binance Key", "Testnet Key"',
+  `binance_api_key_encrypted` text NOT NULL,
+  `binance_api_secret_encrypted` text NOT NULL,
+  `gemini_api_key_encrypted` text NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 if the API key is active, 0 otherwise',
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Indexes for dumped tables
+--
+
+--
+-- Indexes for table `ai_interactions_log`
+--
+ALTER TABLE `ai_interactions_log`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_id` (`user_id`),
+  ADD KEY `idx_bot_config_id` (`bot_config_id`),
+  ADD KEY `idx_symbol_timestamp_action` (`trading_symbol`,`log_timestamp_utc`);
+
+--
+-- Indexes for table `bot_configurations`
+--
+ALTER TABLE `bot_configurations`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_user_config_name` (`user_id`,`name`),
+  ADD KEY `idx_user_id` (`user_id`),
+  ADD KEY `idx_user_api_key_id` (`user_api_key_id`);
+
+--
+-- Indexes for table `bot_runtime_status`
+--
+ALTER TABLE `bot_runtime_status`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `bot_config_id` (`bot_config_id`),
+  ADD KEY `idx_status` (`status`);
+
+--
+-- Indexes for table `orders_log`
+--
+ALTER TABLE `orders_log`
+  ADD PRIMARY KEY (`internal_id`),
+  ADD KEY `idx_user_id` (`user_id`),
+  ADD KEY `idx_bot_config_id` (`bot_config_id`),
+  ADD KEY `idx_symbol_timestamp` (`symbol`,`bot_event_timestamp_utc`),
+  ADD KEY `idx_order_id_binance` (`order_id_binance`);
+
+--
+-- Indexes for table `trade_logic_source`
+--
+ALTER TABLE `trade_logic_source`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_user_source_name` (`user_id`,`source_name`),
+  ADD KEY `idx_user_id` (`user_id`);
+
+--
+-- Indexes for table `users`
+--
+ALTER TABLE `users`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `username` (`username`),
+  ADD UNIQUE KEY `email` (`email`);
+
+--
+-- Indexes for table `user_api_keys`
+--
+ALTER TABLE `user_api_keys`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_id` (`user_id`);
+
+--
+-- AUTO_INCREMENT for dumped tables
+--
+
+--
+-- AUTO_INCREMENT for table `ai_interactions_log`
+--
+ALTER TABLE `ai_interactions_log`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `bot_configurations`
+--
+ALTER TABLE `bot_configurations`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `bot_runtime_status`
+--
+ALTER TABLE `bot_runtime_status`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `orders_log`
+--
+ALTER TABLE `orders_log`
+  MODIFY `internal_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `trade_logic_source`
+--
+ALTER TABLE `trade_logic_source`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `users`
+--
+ALTER TABLE `users`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `user_api_keys`
+--
+ALTER TABLE `user_api_keys`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- Constraints for dumped tables
+--
+
+--
+-- Constraints for table `ai_interactions_log`
+--
+ALTER TABLE `ai_interactions_log`
+  ADD CONSTRAINT `fk_ai_log_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_ai_log_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `bot_configurations`
+--
+ALTER TABLE `bot_configurations`
+  ADD CONSTRAINT `fk_config_api_key` FOREIGN KEY (`user_api_key_id`) REFERENCES `user_api_keys` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_config_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `bot_runtime_status`
+--
+ALTER TABLE `bot_runtime_status`
+  ADD CONSTRAINT `fk_status_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `orders_log`
+--
+ALTER TABLE `orders_log`
+  ADD CONSTRAINT `fk_order_log_config` FOREIGN KEY (`bot_config_id`) REFERENCES `bot_configurations` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_order_log_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `trade_logic_source`
+--
+ALTER TABLE `trade_logic_source`
+  ADD CONSTRAINT `fk_trade_logic_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `user_api_keys`
+--
+ALTER TABLE `user_api_keys`
+  ADD CONSTRAINT `fk_api_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 -- --------------------------------------------------------
 -- SAMPLE DATA INSERTION
@@ -216,16 +389,3 @@ INSERT IGNORE INTO `trade_logic_source` (`id`, `user_id`, `source_name`, `is_act
 
 
 COMMIT;
---- START OF FILE .env ---
-
-APP_ENCRYPTION_KEY="base64:..."
-
-GEMINI_MODEL_NAME="gemini-1.5-pro-latest"
-
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_NAME=server_new
-DB_USER=root
-DB_PASSWORD=root
-
-fix it , so that the user can create an API key, then create a bot, and run it.

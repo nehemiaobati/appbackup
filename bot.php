@@ -147,60 +147,84 @@ class AiTradingBotFutures
 
         $this->loop = Loop::get();
         $this->browser = new Browser($this->loop);
-        
+
+        // Configure Monolog for stdout logging
         $logFormat = "[%datetime%] [%level_name%] [BotID:{$this->botConfigId}] [UserID:?] %message% %context% %extra%\n";
-        
         $formatter = new LineFormatter($logFormat, 'Y-m-d H:i:s', true, true);
-        $streamHandler = new StreamHandler('php://stdout', Logger::DEBUG);
+        $streamHandler = new StreamHandler('php://stdout', Logger::DEBUG); // Log all levels to stdout
         $streamHandler->setFormatter($formatter);
-        $this->logger = new Logger('AiTradingBotFutures_UserBased');
+        $this->logger = new Logger('AiTradingBotFutures'); // Use a more generic name for the logger instance
         $this->logger->pushHandler($streamHandler);
 
+        // Initialize database connection and load configurations
         $this->initializeDatabaseConnection();
         $this->loadBotConfigurationFromDb($this->botConfigId);
-        
+
+        // Update logger with actual UserID after configuration is loaded
         $newLogFormat = str_replace('[UserID:?]', "[UserID:{$this->userId}]", $logFormat);
         $newFormatter = new LineFormatter($newLogFormat, 'Y-m-d H:i:s', true, true);
-        $this->logger->getHandlers()[0]->setFormatter($newFormatter);
+        $this->logger->getHandlers()[0]->setFormatter($newFormatter); // Apply new formatter to the existing handler
 
+        // Load user API keys and active trade logic
         $this->loadUserAndApiKeys();
         $this->loadActiveTradeLogicSource();
 
+        // Set base URLs based on testnet configuration
         $this->currentRestApiBaseUrl = $this->useTestnet ? self::BINANCE_FUTURES_TEST_REST_API_BASE_URL : self::BINANCE_FUTURES_PROD_REST_API_BASE_URL;
         $this->currentWsBaseUrlCombined = $this->useTestnet ? self::BINANCE_FUTURES_TEST_WS_BASE_URL_COMBINED : self::BINANCE_FUTURES_PROD_WS_BASE_URL;
 
-        $this->logger->info('AiTradingBotFutures instance created and configured.', [
-            'symbol' => $this->tradingSymbol, 'ai_model' => $this->geminiModelName, 'testnet' => $this->useTestnet,
-            'active_trade_logic_source' => $this->currentActiveTradeLogicSource ? ($this->currentActiveTradeLogicSource['source_name'] . ' v' . $this->currentActiveTradeLogicSource['version']) : 'None Loaded',
+        // Log successful bot initialization
+        $this->logger->info('AiTradingBotFutures instance successfully initialized and configured.', [
+            'symbol' => $this->tradingSymbol,
+            'ai_model' => $this->geminiModelName,
+            'testnet_mode' => $this->useTestnet ? 'Enabled' : 'Disabled',
+            'active_trade_logic_source' => $this->currentActiveTradeLogicSource ? ($this->currentActiveTradeLogicSource['source_name'] . ' v' . $this->currentActiveTradeLogicSource['version']) : 'None Loaded (using fallback)',
         ]);
         $this->aiSuggestedLeverage = $this->defaultLeverage;
     }
 
+    /**
+     * Decrypts an encrypted string using the application encryption key.
+     *
+     * @param string $encryptedData Base64 encoded string containing IV and encrypted data.
+     * @return string Decrypted plain text.
+     * @throws \RuntimeException If decryption fails at any stage.
+     */
     private function decrypt(string $encryptedData): string
     {
         $decoded = base64_decode($encryptedData);
         if ($decoded === false) {
+            $this->logger->error("Decryption failed: Base64 decode error.", ['encrypted_data_preview' => substr($encryptedData, 0, 50)]);
             throw new \RuntimeException('Failed to base64 decode encrypted key.');
         }
         $ivLength = openssl_cipher_iv_length(self::ENCRYPTION_CIPHER);
         $iv = substr($decoded, 0, $ivLength);
         $encrypted = substr($decoded, $ivLength);
 
-        if ($iv === false || $encrypted === false) {
-             throw new \RuntimeException('Invalid encrypted data format.');
+        if ($iv === false || $encrypted === false || strlen($iv) !== $ivLength) {
+            $this->logger->error("Decryption failed: Invalid IV or encrypted data format.", ['iv_length_expected' => $ivLength, 'iv_length_actual' => strlen($iv)]);
+            throw new \RuntimeException('Invalid encrypted data format: IV or encrypted data missing/malformed.');
         }
 
         $decrypted = openssl_decrypt($encrypted, self::ENCRYPTION_CIPHER, $this->appEncryptionKey, OPENSSL_RAW_DATA, $iv);
 
         if ($decrypted === false) {
+            $this->logger->error("Decryption failed: openssl_decrypt returned false. Check APP_ENCRYPTION_KEY and data integrity.", ['cipher' => self::ENCRYPTION_CIPHER]);
             throw new \RuntimeException('Failed to decrypt API key. Check APP_ENCRYPTION_KEY and data integrity.');
         }
+        $this->logger->debug("Data successfully decrypted.");
         return $decrypted;
     }
 
+    /**
+     * Loads and decrypts user-specific API keys from the database.
+     *
+     * @throws \RuntimeException If database is not connected, no active keys are found, or decryption fails.
+     */
     private function loadUserAndApiKeys(): void
     {
         if (!$this->pdo) {
+            $this->logger->critical("Attempted to load API keys but database connection is not established.");
             throw new \RuntimeException("Cannot load API keys: Database not connected.");
         }
 
@@ -217,6 +241,7 @@ class AiTradingBotFutures
         $keys = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$keys) {
+            $this->logger->critical("No active API keys found for bot configuration ID {$this->botConfigId} and user ID {$this->userId}.");
             throw new \RuntimeException("No active API keys found for bot configuration ID {$this->botConfigId} and user ID {$this->userId}.");
         }
 
@@ -226,11 +251,16 @@ class AiTradingBotFutures
             $this->geminiApiKey = $this->decrypt($keys['gemini_api_key_encrypted']);
             $this->logger->info("User API keys loaded and decrypted successfully.");
         } catch (\Throwable $e) {
-            $this->logger->error("FATAL: Failed to decrypt API keys. " . $e->getMessage());
+            $this->logger->critical("FATAL: Failed to decrypt user API keys for user {$this->userId}. " . $e->getMessage(), ['exception' => $e]);
             throw new \RuntimeException("API key decryption failed for user {$this->userId}: " . $e->getMessage(), 0, $e);
         }
     }
 
+    /**
+     * Initializes the PDO database connection.
+     *
+     * @throws \RuntimeException If the database connection fails.
+     */
     private function initializeDatabaseConnection(): void
     {
         $dsn = "mysql:host={$this->dbHost};port={$this->dbPort};dbname={$this->dbName};charset=utf8mb4";
@@ -241,17 +271,24 @@ class AiTradingBotFutures
         ];
         try {
             $this->pdo = new PDO($dsn, $this->dbUser, $this->dbPassword, $options);
-            $this->logger->info("Successfully connected to database '{$this->dbName}'.");
+            $this->logger->info("Successfully connected to database.", ['db_name' => $this->dbName, 'db_host' => $this->dbHost]);
         } catch (\PDOException $e) {
             $this->pdo = null;
-            $this->logger->error("Database connection failed: " . $e->getMessage());
-            throw new \RuntimeException("Database connection failed at startup: " . $e->getMessage());
+            $this->logger->critical("Database connection failed at startup: " . $e->getMessage(), ['db_host' => $this->dbHost, 'db_name' => $this->dbName, 'exception' => $e]);
+            throw new \RuntimeException("Database connection failed at startup: " . $e->getMessage(), 0, $e);
         }
     }
 
+    /**
+     * Loads the bot's configuration from the database.
+     *
+     * @param int $configId The ID of the bot configuration to load.
+     * @throws \RuntimeException If the database is not connected or configuration is not found/active.
+     */
     private function loadBotConfigurationFromDb(int $configId): void
     {
         if (!$this->pdo) {
+            $this->logger->critical("Cannot load bot configuration: Database connection is not established.");
             throw new \RuntimeException("Cannot load bot configuration: Database not connected.");
         }
 
@@ -260,9 +297,11 @@ class AiTradingBotFutures
         $config = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$config) {
+            $this->logger->critical("Bot configuration with ID {$configId} not found or is not active in the database.");
             throw new \RuntimeException("Bot configuration with ID {$configId} not found or is not active.");
         }
 
+        // Assign configuration values to properties
         $this->userId = (int)$config['user_id'];
         $this->tradingSymbol = strtoupper($config['symbol']);
         $this->klineInterval = $config['kline_interval'];
@@ -275,25 +314,37 @@ class AiTradingBotFutures
         $this->initialMarginTargetUsdt = (float)$config['initial_margin_target_usdt'];
         $this->takeProfitTargetUsdt = (float)$config['take_profit_target_usdt'];
         $this->profitCheckIntervalSeconds = (int)$config['profit_check_interval_seconds'];
-        $this->maxScriptRuntimeSeconds = 86400;
+        $this->maxScriptRuntimeSeconds = 86400; // Hardcoded max runtime
 
+        // Default AI historical kline intervals
         $this->historicalKlineIntervalsAIArray = ['1m', '5m', '15m', '30m', '1h', '6h', '12h', '1d'];
         $this->primaryHistoricalKlineIntervalAI = '5m';
 
-        $this->logger->info("Bot configuration loaded from DB.", [
-            'config_name' => $config['name']
+        $this->logger->info("Bot configuration loaded successfully from DB.", [
+            'config_id' => $configId,
+            'config_name' => $config['name'],
+            'user_id' => $this->userId,
+            'symbol' => $this->tradingSymbol,
+            'testnet' => $this->useTestnet,
         ]);
     }
 
+    /**
+     * Updates the bot's runtime status in the database.
+     *
+     * @param string $status The current status of the bot (e.g., 'running', 'initializing', 'error', 'stopped').
+     * @param string|null $errorMessage Optional error message if the status is 'error'.
+     * @return bool True on successful update, false otherwise.
+     */
     private function updateBotStatus(string $status, ?string $errorMessage = null): bool
     {
         if (!$this->pdo) {
-            $this->logger->error("DB not connected. Cannot update bot runtime status.");
+            $this->logger->error("Database connection not available. Cannot update bot runtime status in DB.", ['status_attempted' => $status]);
             return false;
         }
 
         try {
-            $pid = getmypid();
+            $pid = getmypid(); // Get current process ID
 
             $stmt = $this->pdo->prepare("
                 INSERT INTO bot_runtime_status (bot_config_id, status, last_heartbeat, process_id, error_message)
@@ -308,10 +359,10 @@ class AiTradingBotFutures
                 ':process_id' => $pid,
                 ':error_message' => $errorMessage
             ]);
-            $this->logger->debug("Bot runtime status updated in DB.", ['status' => $status, 'pid' => $pid]);
+            $this->logger->debug("Bot runtime status updated in DB.", ['status' => $status, 'pid' => $pid, 'error_msg' => $errorMessage]);
             return true;
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to update bot runtime status in DB: " . $e->getMessage(), ['status' => $status]);
+            $this->logger->error("Failed to update bot runtime status in DB: " . $e->getMessage(), ['status' => $status, 'exception' => $e]);
             return false;
         }
     }
@@ -327,7 +378,7 @@ class AiTradingBotFutures
             'quantity_determination_method' => 'INITIAL_MARGIN_TARGET',
             'entry_conditions_keywords' => ['momentum_confirm', 'breakout_consolidation'],
             'exit_conditions_keywords' => ['momentum_stall', 'target_profit_achieved'],
-            'leverage_preference' => ['min' => 5, 'max' => 10, 'preferred' => 10],
+            'leverage_preference' => ['min' => 100, 'max' => 100, 'preferred' => 100],
             'ai_confidence_threshold_for_trade' => 0.7,
             'ai_learnings_notes' => 'Initial default strategy directives. AI to adapt based on market and trade outcomes.',
             'allow_ai_to_update_self' => false,
@@ -335,16 +386,25 @@ class AiTradingBotFutures
         ];
     }
 
+    /**
+     * Loads the active trade logic source for the user from the database.
+     * If no active source is found, a default one is created and activated.
+     */
     private function loadActiveTradeLogicSource(): void
     {
         if (!$this->pdo) {
-            $this->logger->warning("DB not connected. Using hardcoded default strategy.");
+            $this->logger->warning("Database connection not available. Using hardcoded default trade strategy as fallback.");
             $defaultDirectives = $this->getDefaultStrategyDirectives();
             $this->currentActiveTradeLogicSource = [
-                'id' => 0, 'user_id' => $this->userId, 'source_name' => self::DEFAULT_TRADE_LOGIC_SOURCE_NAME . '_fallback',
-                'is_active' => true, 'version' => 1, 'last_updated_by' => 'SYSTEM_FALLBACK',
+                'id' => 0, // Indicate a non-DB source
+                'user_id' => $this->userId,
+                'source_name' => self::DEFAULT_TRADE_LOGIC_SOURCE_NAME . '_fallback',
+                'is_active' => true,
+                'version' => 1,
+                'last_updated_by' => 'SYSTEM_FALLBACK',
                 'last_updated_at_utc' => gmdate('Y-m-d H:i:s'),
-                'strategy_directives_json' => json_encode($defaultDirectives), 'strategy_directives' => $defaultDirectives,
+                'strategy_directives_json' => json_encode($defaultDirectives),
+                'strategy_directives' => $defaultDirectives,
             ];
             return;
         }
@@ -361,12 +421,20 @@ class AiTradingBotFutures
                 if (json_last_error() === JSON_ERROR_NONE) {
                     $this->currentActiveTradeLogicSource['strategy_directives'] = $decodedDirectives;
                 } else {
-                    $this->logger->error("Failed to decode strategy_directives_json from DB.", ['json_error' => json_last_error_msg()]);
+                    $this->logger->error("Failed to decode 'strategy_directives_json' from DB for source ID {$source['id']}.", [
+                        'json_error' => json_last_error_msg(),
+                        'source_id' => $source['id'],
+                        'user_id' => $this->userId
+                    ]);
+                    // Fallback to default directives if decoding fails
                     $this->currentActiveTradeLogicSource['strategy_directives'] = $this->getDefaultStrategyDirectives();
                 }
-                $this->logger->info("Loaded active trade logic source '{$source['source_name']}' v{$source['version']} from DB.");
+                $this->logger->info("Loaded active trade logic source '{$source['source_name']}' v{$source['version']} from DB.", [
+                    'source_id' => $source['id'],
+                    'user_id' => $this->userId
+                ]);
             } else {
-                $this->logger->warning("No active trade logic source found for user. Creating and activating a default one.");
+                $this->logger->warning("No active trade logic source found for user ID {$this->userId}. Creating and activating a default one.");
                 $defaultDirectives = $this->getDefaultStrategyDirectives();
                 $insertSql = "INSERT INTO trade_logic_source (user_id, source_name, is_active, version, last_updated_by, last_updated_at_utc, strategy_directives_json)
                               VALUES (:user_id, :name, TRUE, 1, 'SYSTEM_DEFAULT', :now, :directives)";
@@ -377,18 +445,29 @@ class AiTradingBotFutures
                     ':now' => gmdate('Y-m-d H:i:s'),
                     ':directives' => json_encode($defaultDirectives)
                 ]);
+                // Recursively call to load the newly created default source
                 $this->loadActiveTradeLogicSource();
             }
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to load active trade logic source from DB: " . $e->getMessage() . ". Using hardcoded default.");
-            $this->currentActiveTradeLogicSource = null;
+            $this->logger->error("Failed to load active trade logic source from DB: " . $e->getMessage() . ". Using hardcoded default as fallback.", ['exception' => $e, 'user_id' => $this->userId]);
+            $this->currentActiveTradeLogicSource = null; // Ensure it's null if DB fails completely
         }
     }
     
+    /**
+     * Updates the trade logic source in the database.
+     *
+     * @param array $updatedDirectives The new strategy directives to save.
+     * @param string $reasonForUpdate A brief reason for the update.
+     * @param array|null $currentFullDataForAI Optional snapshot of full AI data at the time of update.
+     * @return bool True on success, false on failure.
+     */
     private function updateTradeLogicSourceInDb(array $updatedDirectives, string $reasonForUpdate, ?array $currentFullDataForAI): bool
     {
         if (!$this->pdo || !$this->currentActiveTradeLogicSource || !isset($this->currentActiveTradeLogicSource['id']) || $this->currentActiveTradeLogicSource['id'] === 0) {
-            $this->logger->error("Cannot update trade logic source: DB not connected or no valid source loaded from DB.");
+            $this->logger->error("Cannot update trade logic source: Database not connected or no valid source loaded from DB (ID 0 indicates fallback).", [
+                'source_id' => $this->currentActiveTradeLogicSource['id'] ?? 'N/A'
+            ]);
             return false;
         }
 
@@ -396,7 +475,9 @@ class AiTradingBotFutures
         $newVersion = (int)$this->currentActiveTradeLogicSource['version'] + 1;
 
         $timestampedReason = gmdate('Y-m-d H:i:s') . ' UTC - AI Update (v' . $newVersion . '): ' . $reasonForUpdate;
-        $updatedDirectives['ai_learnings_notes'] = $timestampedReason . "\n" . ($updatedDirectives['ai_learnings_notes'] ?? '');
+        // Prepend new reason to existing notes, ensuring it's an array if not already.
+        $existingNotes = $updatedDirectives['ai_learnings_notes'] ?? '';
+        $updatedDirectives['ai_learnings_notes'] = $timestampedReason . "\n" . $existingNotes;
         $updatedDirectives['schema_version'] = $updatedDirectives['schema_version'] ?? '1.0.0';
 
         $sql = "UPDATE trade_logic_source SET version = :version, last_updated_by = 'AI', last_updated_at_utc = :now,
@@ -412,47 +493,90 @@ class AiTradingBotFutures
                 ':id' => $sourceIdToUpdate,
                 ':user_id' => $this->userId
             ]);
-            $this->logger->info("Trade logic source updated to v{$newVersion} by AI.", ['reason' => $reasonForUpdate]);
+            $this->logger->info("Trade logic source updated to v{$newVersion} by AI.", [
+                'source_id' => $sourceIdToUpdate,
+                'user_id' => $this->userId,
+                'reason' => $reasonForUpdate
+            ]);
+            // Reload the configuration to ensure the bot uses the latest directives
             $this->loadActiveTradeLogicSource();
             return true;
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to update trade logic source in DB: " . $e->getMessage());
+            $this->logger->error("Failed to update trade logic source in DB: " . $e->getMessage(), [
+                'source_id' => $sourceIdToUpdate,
+                'user_id' => $this->userId,
+                'exception' => $e
+            ]);
             return false;
         }
     }
 
-    private function logOrderToDb(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0): bool
+    /**
+     * Logs an order event to the database.
+     *
+     * @param string $orderId Binance order ID.
+     * @param string $status Status or reason for the log (e.g., FILLED, CANCELED, ENTRY_ATTEMPT).
+     * @param string $side BUY/SELL.
+     * @param string $assetPair Trading symbol (e.g., BTCUSDT).
+     * @param float|null $price Price point of the order/fill.
+     * @param float|null $quantity Quantity involved.
+     * @param string|null $marginAsset Margin asset (e.g., USDT).
+     * @param int $timestamp Unix timestamp of the event.
+     * @param float|null $realizedPnl Realized PnL for the trade (if applicable).
+     * @param float $commissionUsdt Commission paid in USDT equivalent.
+     * @param bool $reduceOnly Whether the order was reduce-only.
+     * @return bool True on successful log, false otherwise.
+     */
+    private function logOrderToDb(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): bool
     {
         if (!$this->pdo) {
-            $this->logger->warning("DB not connected. Cannot log order to DB.", compact('orderId', 'status'));
+            $this->logger->warning("Database connection not available. Cannot log order to DB.", compact('orderId', 'status'));
             return false;
         }
-        $sql = "INSERT INTO orders_log (user_id, bot_config_id, order_id_binance, bot_event_timestamp_utc, symbol, side, status_reason, price_point, quantity_involved, margin_asset, realized_pnl_usdt, commission_usdt)
-                VALUES (:user_id, :bot_config_id, :order_id_binance, :bot_event_timestamp_utc, :symbol, :side, :status_reason, :price_point, :quantity_involved, :margin_asset, :realized_pnl_usdt, :commission_usdt)";
+        $sql = "INSERT INTO orders_log (user_id, bot_config_id, order_id_binance, bot_event_timestamp_utc, symbol, side, status_reason, price_point, quantity_involved, margin_asset, realized_pnl_usdt, commission_usdt, reduce_only)
+                VALUES (:user_id, :bot_config_id, :order_id_binance, :bot_event_timestamp_utc, :symbol, :side, :status_reason, :price_point, :quantity_involved, :margin_asset, :realized_pnl_usdt, :commission_usdt, :reduce_only)";
         try {
             $stmt = $this->pdo->prepare($sql);
-            return $stmt->execute([
+            $success = $stmt->execute([
                 ':user_id' => $this->userId,
                 ':bot_config_id' => $this->botConfigId,
                 ':order_id_binance' => $orderId,
                 ':bot_event_timestamp_utc' => gmdate('Y-m-d H:i:s', $timestamp),
-                ':symbol' => $assetPair, ':side' => $side, ':status_reason' => $status,
-                ':price_point' => $price, ':quantity_involved' => $quantity,
-                ':margin_asset' => $marginAsset, ':realized_pnl_usdt' => $realizedPnl,
-                ':commission_usdt' => $commissionUsdt
+                ':symbol' => $assetPair,
+                ':side' => $side,
+                ':status_reason' => $status,
+                ':price_point' => $price,
+                ':quantity_involved' => $quantity,
+                ':margin_asset' => $marginAsset,
+                ':realized_pnl_usdt' => $realizedPnl,
+                ':commission_usdt' => $commissionUsdt,
+                ':reduce_only' => (int)$reduceOnly
             ]);
+            if ($success) {
+                $this->logger->debug("Order logged to DB successfully.", compact('orderId', 'status', 'realizedPnl', 'commissionUsdt'));
+            } else {
+                $this->logger->error("Failed to execute order log statement to DB.", compact('orderId', 'status'));
+            }
+            return $success;
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to log order to DB: " . $e->getMessage(), compact('orderId', 'status'));
+            $this->logger->error("Failed to log order to DB due to PDOException: " . $e->getMessage(), compact('orderId', 'status', 'e'));
             return false;
         }
     }
 
+    /**
+     * Fetches recent order logs from the database for AI context.
+     *
+     * @param int $limit The maximum number of logs to fetch.
+     * @return array An array of recent order logs, or an error entry if DB is not connected.
+     */
     private function getRecentOrderLogsFromDb(int $limit): array
     {
         if (!$this->pdo) {
-            return [['error' => 'Database not connected']];
+            $this->logger->warning("Database connection not available. Cannot fetch recent order logs from DB.");
+            return [['error' => 'Database not connected', 'message' => 'Cannot fetch order logs without a database connection.']];
         }
-        $sql = "SELECT order_id_binance as orderId, status_reason as status, side, symbol as assetPair, price_point as price, quantity_involved as quantity, margin_asset as marginAsset, DATE_FORMAT(bot_event_timestamp_utc, '%Y-%m-%d %H:%i:%s UTC') as timestamp, realized_pnl_usdt as realizedPnl
+        $sql = "SELECT order_id_binance as orderId, status_reason as status, side, symbol as assetPair, price_point as price, quantity_involved as quantity, margin_asset as marginAsset, DATE_FORMAT(bot_event_timestamp_utc, '%Y-%m-%d %H:%i:%s UTC') as timestamp, realized_pnl_usdt as realizedPnl, reduce_only as reduceOnly
                 FROM orders_log WHERE bot_config_id = :bot_config_id ORDER BY bot_event_timestamp_utc DESC LIMIT :limit";
         try {
             $stmt = $this->pdo->prepare($sql);
@@ -460,29 +584,42 @@ class AiTradingBotFutures
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->execute();
             $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $this->logger->debug("Fetched recent order logs from DB.", ['count' => count($logs)]);
             return array_map(function ($log) {
                 $log['price'] = isset($log['price']) ? (float)$log['price'] : null;
                 $log['quantity'] = isset($log['quantity']) ? (float)$log['quantity'] : null;
                 $log['realizedPnl'] = isset($log['realizedPnl']) ? (float)$log['realizedPnl'] : 0.0;
+                $log['reduceOnly'] = (bool)($log['reduceOnly'] ?? false); // Ensure it's a boolean
                 return $log;
             }, $logs);
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to fetch recent order logs from DB: " . $e->getMessage());
+            $this->logger->error("Failed to fetch recent order logs from DB: " . $e->getMessage(), ['exception' => $e]);
             return [['error' => 'Failed to fetch order logs: ' . $e->getMessage()]];
         }
     }
 
+    /**
+     * Logs an AI interaction event to the database.
+     *
+     * @param string $executedAction The action executed by the bot based on AI's decision.
+     * @param array|null $aiDecisionParams The raw parameters received from AI's decision.
+     * @param array|null $botFeedback Feedback from the bot about the AI's decision or execution.
+     * @param array|null $fullDataForAI The full data context sent to AI.
+     * @param string|null $promptMd5 MD5 hash of the prompt sent to AI.
+     * @param string|null $rawAiResponse Raw JSON response received from AI.
+     * @return bool True on successful log, false otherwise.
+     */
     private function logAIInteractionToDb(string $executedAction, ?array $aiDecisionParams, ?array $botFeedback, ?array $fullDataForAI, ?string $promptMd5 = null, ?string $rawAiResponse = null): bool
     {
         if (!$this->pdo) {
-            $this->logger->warning("DB not connected. Cannot log AI interaction to DB.", compact('executedAction'));
+            $this->logger->warning("Database connection not available. Cannot log AI interaction to DB.", compact('executedAction'));
             return false;
         }
         $sql = "INSERT INTO ai_interactions_log (user_id, bot_config_id, log_timestamp_utc, trading_symbol, executed_action_by_bot, ai_decision_params_json, bot_feedback_json, full_data_for_ai_json, prompt_text_sent_to_ai_md5, raw_ai_response_json)
                 VALUES (:user_id, :bot_config_id, :log_timestamp_utc, :trading_symbol, :executed_action_by_bot, :ai_decision_params_json, :bot_feedback_json, :full_data_for_ai_json, :prompt_text_sent_to_ai_md5, :raw_ai_response_json)";
         try {
             $stmt = $this->pdo->prepare($sql);
-            return $stmt->execute([
+            $success = $stmt->execute([
                 ':user_id' => $this->userId,
                 ':bot_config_id' => $this->botConfigId,
                 ':log_timestamp_utc' => gmdate('Y-m-d H:i:s'),
@@ -494,16 +631,29 @@ class AiTradingBotFutures
                 ':prompt_text_sent_to_ai_md5' => $promptMd5,
                 ':raw_ai_response_json' => $rawAiResponse ? json_encode(json_decode($rawAiResponse, true), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE) : null,
             ]);
+            if ($success) {
+                $this->logger->debug("AI interaction logged to DB successfully.", compact('executedAction', 'promptMd5'));
+            } else {
+                $this->logger->error("Failed to execute AI interaction log statement to DB.", compact('executedAction', 'promptMd5'));
+            }
+            return $success;
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to log AI interaction to DB: " . $e->getMessage());
+            $this->logger->error("Failed to log AI interaction to DB due to PDOException: " . $e->getMessage(), compact('executedAction', 'e'));
             return false;
         }
     }
 
+    /**
+     * Fetches recent AI interaction logs from the database for AI context.
+     *
+     * @param int $limit The maximum number of interactions to fetch.
+     * @return array An array of recent AI interaction logs, or an error entry if DB is not connected.
+     */
     private function getRecentAIInteractionsFromDb(int $limit): array
     {
         if (!$this->pdo) {
-            return [['error' => 'Database not connected']];
+            $this->logger->warning("Database connection not available. Cannot fetch recent AI interactions from DB.");
+            return [['error' => 'Database not connected', 'message' => 'Cannot fetch AI interactions without a database connection.']];
         }
         $sql = "SELECT log_timestamp_utc, executed_action_by_bot, ai_decision_params_json, bot_feedback_json
                 FROM ai_interactions_log WHERE bot_config_id = :bot_config_id ORDER BY log_timestamp_utc DESC LIMIT :limit";
@@ -513,6 +663,7 @@ class AiTradingBotFutures
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->execute();
             $interactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $this->logger->debug("Fetched recent AI interactions from DB.", ['count' => count($interactions)]);
             return array_map(function ($interaction) {
                 $interaction['ai_decision_params'] = isset($interaction['ai_decision_params_json']) ? json_decode($interaction['ai_decision_params_json'], true) : null;
                 $interaction['bot_feedback'] = isset($interaction['bot_feedback_json']) ? json_decode($interaction['bot_feedback_json'], true) : null;
@@ -520,7 +671,7 @@ class AiTradingBotFutures
                 return $interaction;
             }, $interactions);
         } catch (\PDOException $e) {
-            $this->logger->error("Failed to fetch recent AI interactions from DB: " . $e->getMessage());
+            $this->logger->error("Failed to fetch recent AI interactions from DB: " . $e->getMessage(), ['exception' => $e]);
             return [['error' => 'Failed to fetch AI interactions: ' . $e->getMessage()]];
         }
     }
@@ -531,6 +682,7 @@ class AiTradingBotFutures
         $this->logger->info('Starting AI Trading Bot initialization...');
         $this->updateBotStatus('initializing');
 
+        // Use React\Promise\all to concurrently fetch initial data
         \React\Promise\all([
             'exchange_info' => $this->fetchExchangeInfo(), // Fetch exchange info first
             'initial_balance' => $this->getFuturesAccountBalance(),
@@ -539,41 +691,49 @@ class AiTradingBotFutures
             'listen_key' => $this->startUserDataStream(),
         ])->then(
             function ($results) {
-                $this->exchangeInfo = $results['exchange_info']; // Store exchange info
+                // Store fetched data
+                $this->exchangeInfo = $results['exchange_info'];
                 $initialBalance = $results['initial_balance'][$this->marginAsset] ?? ['availableBalance' => 0.0, 'balance' => 0.0];
                 $this->lastClosedKlinePrice = (float)($results['initial_price']['price'] ?? 0);
                 $this->currentPositionDetails = $this->formatPositionDetails($results['initial_position']);
                 $this->listenKey = $results['listen_key']['listenKey'] ?? null;
 
+                // Validate critical initial data
                 if ($this->lastClosedKlinePrice <= 0) {
+                    $this->logger->critical("Initialization failed: Failed to fetch a valid initial price for {$this->tradingSymbol}.");
                     throw new \RuntimeException("Failed to fetch a valid initial price for {$this->tradingSymbol}.");
                 }
                 if (!$this->listenKey) {
+                    $this->logger->critical("Initialization failed: Failed to obtain a listenKey for User Data Stream.");
                     throw new \RuntimeException("Failed to obtain a listenKey for User Data Stream.");
                 }
 
-                $this->logger->info('Initialization Success', [
+                $this->logger->info('Bot Initialization Success', [
                     'startup_balance' => $initialBalance,
                     'initial_market_price' => $this->lastClosedKlinePrice,
                     'initial_position' => $this->currentPositionDetails ?? 'No position',
                     'listen_key_obtained' => !empty($this->listenKey),
                 ]);
 
+                // Proceed with WebSocket connection and timer setup
                 $this->connectWebSocket();
                 $this->setupTimers();
+                // Trigger initial AI update after a short delay
                 $this->loop->addTimer(5, fn() => $this->triggerAIUpdate());
                 $this->updateBotStatus('running');
             },
             function (\Throwable $e) {
-                $this->logger->error('Initialization failed', ['exception' => $e->getMessage(), 'trace' => substr($e->getTraceAsString(),0,1000)]);
-                $this->updateBotStatus('error', $e->getMessage());
-                $this->stop();
+                // Handle initialization failures
+                $errorMessage = 'Bot Initialization failed: ' . $e->getMessage();
+                $this->logger->critical($errorMessage, ['exception' => $e->getMessage(), 'trace' => substr($e->getTraceAsString(),0,1000)]);
+                $this->updateBotStatus('error', $errorMessage);
+                $this->stop(); // Ensure bot stops on critical initialization failure
             }
         );
         $this->logger->info('Starting event loop...');
-        $this->loop->run();
+        $this->loop->run(); // This is the main blocking call for ReactPHP
         $this->logger->info('Event loop finished.');
-        $this->updateBotStatus('stopped');
+        $this->updateBotStatus('stopped'); // Update status when loop finishes gracefully
     }
 
     private function stop(): void
@@ -775,14 +935,15 @@ class AiTradingBotFutures
                 $commission = (float)($order['n'] ?? 0);
                 $commissionAsset = $order['N'] ?? null;
                 $realizedPnl = (float)($order['rp'] ?? 0.0);
+                $isReduceOnly = (bool)($order['R'] ?? false); // Extract the 'R' field
 
-                $this->getUsdtEquivalent((string)$commissionAsset, $commission)->then(function ($commissionUsdt) use ($order, $orderId, $orderStatus, $executionType, $realizedPnl) {
+                $this->getUsdtEquivalent((string)$commissionAsset, $commission)->then(function ($commissionUsdt) use ($order, $orderId, $orderStatus, $executionType, $realizedPnl, $isReduceOnly) {
                     // --- Handling Active Entry Order ---
                     if ($orderId === $this->activeEntryOrderId) {
                         if ($orderStatus === 'FILLED' || ($orderStatus === 'PARTIALLY_FILLED' && $executionType === 'TRADE')) {
                             $this->logger->info("Entry order {$orderStatus}: {$this->activeEntryOrderId}.");
                             // Log the trade with its commission. P&L on entry is usually 0.
-                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt);
+                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
 
                             if ($orderStatus === 'FILLED') {
                                 $this->activeEntryOrderId = null;
@@ -792,7 +953,7 @@ class AiTradingBotFutures
                             }
                         } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
                             $this->logger->warning("Entry order {$this->activeEntryOrderId} ended without fill: {$orderStatus}.");
-                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['p'], (float)$order['q'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt);
+                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['p'], (float)$order['q'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
                             $this->resetTradeState();
                             $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Entry order failed: {$orderStatus}."];
                         }
@@ -814,7 +975,8 @@ class AiTradingBotFutures
                                 $this->marginAsset,
                                 time(),
                                 $realizedPnl,               // ** THE REALIZED PNL **
-                                $commissionUsdt             // ** THE COMMISSION **
+                                $commissionUsdt,            // ** THE COMMISSION **
+                                $isReduceOnly               // ** IS REDUCE ONLY **
                             );
                             
                             if ($orderStatus === 'FILLED') {
@@ -839,7 +1001,7 @@ class AiTradingBotFutures
                     elseif ($order['ot'] === 'MARKET' && ($order['R'] ?? false)) {
                         if ($orderStatus === 'FILLED' || ($executionType === 'TRADE' && $orderStatus === 'PARTIALLY_FILLED')) {
                             $this->logger->info("Reduce-Only Market Order filled. Capturing P&L and Commission.");
-                             $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt);
+                             $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
                         }
                     }
                 })->otherwise(fn($e) => $this->logger->error("Failed to process commission for order {$orderId}: " . $e->getMessage()));
@@ -1073,11 +1235,11 @@ class AiTradingBotFutures
         $this->isMissingProtectiveOrder = false;
     }
 
-    private function addOrderToLog(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0): void
+    private function addOrderToLog(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): void
     {
-        $logEntry = compact('orderId', 'status', 'side', 'assetPair', 'price', 'quantity', 'marginAsset', 'timestamp', 'realizedPnl', 'commissionUsdt');
+        $logEntry = compact('orderId', 'status', 'side', 'assetPair', 'price', 'quantity', 'marginAsset', 'timestamp', 'realizedPnl', 'commissionUsdt', 'reduceOnly');
         $this->logger->info('Trade/Order outcome logged:', $logEntry);
-        $this->logOrderToDb($orderId, $status, $side, $assetPair, $price, $quantity, $marginAsset, $timestamp, $realizedPnl, $commissionUsdt);
+        $this->logOrderToDb($orderId, $status, $side, $assetPair, $price, $quantity, $marginAsset, $timestamp, $realizedPnl, $commissionUsdt, $reduceOnly);
     }
 
     private function attemptOpenPosition(): void
@@ -2113,6 +2275,13 @@ PROMPT;
                 elseif ($this->aiSuggestedSlPrice <= 0) $validationError = "Invalid stopLossPrice <= 0.";
                 elseif ($this->aiSuggestedTpPrice <= 0) $validationError = "Invalid takeProfitPrice <= 0.";
                 elseif (empty($tradeRationale) || strlen($tradeRationale) < 10) $validationError = "Missing or insufficient 'rationale'.";
+                // Additional validation for logical relationship between entry, SL, and TP prices
+                elseif ($this->aiSuggestedSide === 'BUY' && ($this->aiSuggestedSlPrice >= $this->aiSuggestedEntryPrice || $this->aiSuggestedTpPrice <= $this->aiSuggestedEntryPrice)) {
+                    $validationError = "Invalid SL/TP for LONG position. SL must be < Entry, TP must be > Entry.";
+                }
+                elseif ($this->aiSuggestedSide === 'SELL' && ($this->aiSuggestedSlPrice <= $this->aiSuggestedEntryPrice || $this->aiSuggestedTpPrice >= $this->aiSuggestedEntryPrice)) {
+                    $validationError = "Invalid SL/TP for SHORT position. SL must be > Entry, TP must be < Entry.";
+                }
                 
                 if ($validationError) {
                     $this->logger->error("AI OPEN_POSITION parameters FAILED BOT VALIDATION: {$validationError}", ['failed_decision_params' => $decision]);
@@ -2172,14 +2341,17 @@ try {
     $bot->run();
 } catch (\Throwable $e) {
     $errorMessage = "CRITICAL: Bot for config ID {$botConfigId} stopped due to unhandled exception: " . $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine();
-    error_log($errorMessage);
+    $fullErrorMessage = $errorMessage . "\nStack trace:\n" . $e->getTraceAsString();
+    error_log($fullErrorMessage);
 
     try {
         $pdo = new PDO("mysql:host={$dbHost};port={$dbPort};dbname={$dbName};charset=utf8mb4", $dbUser, $dbPassword);
         $stmt = $pdo->prepare("
             UPDATE bot_runtime_status SET status = 'error', last_heartbeat = NOW(), error_message = :error_message, process_id = NULL WHERE bot_config_id = :bot_config_id
         ");
-        $stmt->execute([':error_message' => substr($errorMessage, 0, 65535), ':bot_config_id' => $botConfigId]);
+        // Ensure the error message fits the database column (e.g., VARCHAR(255) or TEXT)
+        $dbErrorMessage = substr($fullErrorMessage, 0, 65535); // Assuming error_message is TEXT or similar
+        $stmt->execute([':error_message' => $dbErrorMessage, ':bot_config_id' => $botConfigId]);
         error_log("Bot runtime status updated to 'error' in DB for config ID {$botConfigId}.");
     } catch (\PDOException $db_e) {
         error_log("Further DB error when trying to log bot shutdown error: " . $db_e->getMessage());

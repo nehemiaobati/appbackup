@@ -545,12 +545,12 @@ if (isset($_SESSION['user_id'])) {
                             <div class="col-md-6 mb-3"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="BTCUSDT" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">Margin Asset</label><input type="text" class="form-control" name="margin_asset" value="USDT" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">Kline Interval</label><input type="text" class="form-control" name="kline_interval" value="1m" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="10" required></div>
+                            <div class="col-md-6 mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="100" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="60" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="45" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="180" required></div>
+                            <div class="col-md-6 mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="60" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="60" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="10.50" required></div>
+                            <div class="col-md-6 mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="1.50" required></div>
                             <div class="col-md-6 mb-3"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="0.00" required></div>
                             <div class="col-md-12 mb-3 d-flex"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" name="use_testnet" id="use_testnet" value="1" checked><label class="form-check-label" for="use_testnet">Use Testnet</label></div><div class="form-check form-switch ms-4"><input class="form-check-input" type="checkbox" role="switch" name="is_active" id="is_active" value="1" checked><label class="form-check-label" for="is_active">Enable Bot</label></div></div>
                         </div><hr><button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Create Configuration</button><a href="dashboard.php" class="btn btn-secondary">Cancel</a>
@@ -618,9 +618,9 @@ if (isset($_SESSION['user_id'])) {
                             <div class="card-header"><h5 class="mb-0"><i class="bi bi-table"></i> Recent Trades</h5></div>
                             <div class="table-responsive">
                                 <table class="table table-striped table-hover mb-0">
-                                    <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Timestamp</th><th>P/L (USDT)</th></tr></thead>
+                                    <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Type</th><th>Timestamp</th><th>P/L (USDT)</th></tr></thead>
                                     <tbody id="recent-trades-body">
-                                        <tr><td colspan="6" class="text-center p-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</td></tr>
+                                        <tr><td colspan="7" class="text-center p-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -649,7 +649,7 @@ if (isset($_SESSION['user_id'])) {
                                     <div class="mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="<?= $config_data['default_leverage'] ?? 10 ?>" required></div>
                                     <div class="mb-3"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="<?= $config_data['ai_update_interval_seconds'] ?? 60 ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="<?= $config_data['order_check_interval_seconds'] ?? 45 ?>" required></div>
-                                    <div class="mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="<?= $config_data['pending_entry_order_cancel_timeout_seconds'] ?? 180 ?>" required></div>
+                                    <div class="mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="<?= $config_data['pending_entry_order_cancel_timeout_seconds'] ?? 60 ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="<?= $config_data['profit_check_interval_seconds'] ?? 60 ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['initial_margin_target_usdt'], 8), '0'), '.') ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['take_profit_target_usdt'], 8), '0'), '.') ?>" required></div>
@@ -869,18 +869,20 @@ document.addEventListener('DOMContentLoaded', () => {
             // Recent Trades Table
             let tradesHtml = '';
             if (data.recentTrades.length === 0) {
-                tradesHtml = '<tr><td colspan="6" class="text-center text-muted p-4">No trades recorded yet.</td></tr>';
+                tradesHtml = '<tr><td colspan="7" class="text-center text-muted p-4">No trades recorded yet.</td></tr>';
             } else {
                 data.recentTrades.forEach(trade => {
                     const netPnl = trade.realized_pnl_usdt === null ? null : parseFloat(trade.realized_pnl_usdt) - parseFloat(trade.commission_usdt);
                     const pnlText = netPnl === null ? '$0.00' : '$' + netPnl.toFixed(2);
                     const pnlClass = netPnl === null ? '' : (netPnl >= 0 ? 'text-success' : 'text-danger');
+                    const tradeType = trade.reduceOnly ? 'Reduce Only' : 'Normal'; // Determine trade type
                     tradesHtml += `
                         <tr>
                             <td>${trade.symbol}</td>
                             <td><span class="fw-bold text-${trade.side == 'BUY' ? 'success' : 'danger'}">${trade.side}</span></td>
                             <td>${parseFloat(trade.quantity_involved).toString()}</td>
                             <td>$${parseFloat(trade.price_point).toFixed(2)}</td>
+                            <td>${tradeType}</td>
                             <td>${new Date(trade.bot_event_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</td>
                             <td class="fw-bold ${pnlClass}">${pnlText}</td>
                         </tr>`;

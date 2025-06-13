@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Generation Time: Jun 10, 2025 at 10:18 PM
+-- Generation Time: Jun 13, 2025 at 02:33 PM
 -- Server version: 11.8.1-MariaDB-2
 -- PHP Version: 8.4.6
 
@@ -105,7 +105,8 @@ CREATE TABLE `orders_log` (
   `margin_asset` varchar(10) DEFAULT NULL,
   `realized_pnl_usdt` decimal(20,8) DEFAULT NULL,
   `commission_usdt` decimal(20,8) DEFAULT NULL,
-  `created_at_db` timestamp NULL DEFAULT current_timestamp()
+  `created_at_db` timestamp NULL DEFAULT current_timestamp(),
+  `reduce_only` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
