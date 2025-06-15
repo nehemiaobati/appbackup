@@ -1,39 +1,40 @@
 {
-    "schema_version": "1.0.0",
-    "strategy_type": "GENERAL_TRADING",
-    "current_market_bias": "BEARISH",
-    "preferred_timeframes_for_entry": [
-        "1m",
-        "5m",
-        "15m"
-    ],
-    "key_sr_levels_to_watch": {
-        "support": [],
-        "resistance": []
-    },
-    "risk_parameters": {
-        "target_risk_per_trade_usdt": 0.5,
-        "default_rr_ratio": 3,
-        "max_concurrent_positions": 1
-    },
-    "quantity_determination_method": "INITIAL_MARGIN_TARGET",
-    "entry_conditions_keywords": [
-        "momentum_confirm_long",
-        "breakout_consolidation_long",
-        "momentum_confirm_short",
-        "breakdown_consolidation_short"
-    ],
-    "exit_conditions_keywords": [
-        "momentum_stall",
-        "target_profit_achieved"
-    ],
-    "leverage_preference": {
-        "min": 5,
-        "max": 10,
-        "preferred": 10
-    },
-    "ai_confidence_threshold_for_trade": 0.7,
-    "ai_learnings_notes": "2025-06-11 12:24:33 UTC - AI Update (v3): The market data across 1m, 5m, 15m, 30m, and 1h timeframes consistently shows strong bearish momentum and price action. Updating the 'current_market_bias' from 'NEUTRAL' to 'BEARISH' will ensure the bot's overall market perception is accurately aligned with the prevailing conditions, improving the contextual relevance and effectiveness of future trading decisions.\n2025-06-11 12:19:08 UTC - AI Update (v2): The current strategy lacks explicit entry conditions for short positions, limiting the bot's ability to capitalize on bearish market movements. To enhance adaptability and enable profitable trading in various market conditions, explicit shorting entry conditions should be added.\nUpdated to include explicit long and short entry conditions for improved adaptability.",
-    "allow_ai_to_update_self": false,
-    "emergency_hold_justification": "Wait for clear market signal or manual intervention."
+  "schema_version": "1.0.0",
+  "strategy_type": "GENERAL_TRADING",
+  "current_market_bias": "NEUTRAL",
+  "User prompt": [
+    "Take profit Sniper entries."
+  ],
+  "preferred_timeframes_for_entry": [
+    "1m",
+    "5m",
+    "15m"
+  ],
+  "key_sr_levels_to_watch": {
+    "support": [],
+    "resistance": []
+  },
+  "risk_parameters": {
+    "target_risk_per_trade_usdt": 10.5,
+    "default_rr_ratio": 3,
+    "max_concurrent_positions": 1
+  },
+  "quantity_determination_method": "INITIAL_MARGIN_TARGET",
+  "entry_conditions_keywords": [
+    "momentum_confirm",
+    "breakout_consolidation"
+  ],
+  "exit_conditions_keywords": [
+    "momentum_stall",
+    "target_profit_achieved"
+  ],
+  "leverage_preference": {
+    "min": 100,
+    "max": 100,
+    "preferred": 100
+  },
+  "ai_confidence_threshold_for_trade": 0.7,
+  "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.",
+  "allow_ai_to_update_self": false,
+  "emergency_hold_justification": "Wait for clear market signal or manual intervention."
 }
