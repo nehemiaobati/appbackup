@@ -1776,7 +1776,6 @@ class AiTradingBotFutures
                 'current_guiding_trade_logic_source' => $this->currentActiveTradeLogicSource['strategy_directives_json'] ?? null,
                 'bot_configuration_summary_for_ai' => [
                     'initialMarginTargetUsdt' => $this->initialMarginTargetUsdt,
-                    'takeProfitTargetUsdt' => $this->takeProfitTargetUsdt,
                     'defaultLeverage' => $this->defaultLeverage,
                     'pendingEntryOrderTimeoutSeconds' => $this->pendingEntryOrderCancelTimeoutSeconds
                 ],
