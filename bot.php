@@ -908,142 +908,141 @@ class AiTradingBotFutures
      * This function has been significantly updated to use the logic from botoriginal.txt.
      * It now reliably captures P&L and commission from the ORDER_TRADE_UPDATE event.
      */
-    private function handleUserDataStreamEvent(array $eventData): void
-    {
-        $eventType = $eventData['e'] ?? null;
+private function handleUserDataStreamEvent(array $eventData): void
+{
+    $eventType = $eventData['e'] ?? null;
 
-        switch ($eventType) {
-            case 'ACCOUNT_UPDATE':
-                if (isset($eventData['a']['P'])) {
-                    foreach($eventData['a']['P'] as $posData) {
-                        if ($posData['s'] === $this->tradingSymbol) {
-                            $newPositionDetails = $this->formatPositionDetailsFromEvent($posData);
-                            $oldQty = (float)($this->currentPositionDetails['quantity'] ?? 0.0);
-                            $newQty = (float)($newPositionDetails['quantity'] ?? 0.0);
+    switch ($eventType) {
+        case 'ACCOUNT_UPDATE':
+            if (isset($eventData['a']['P'])) {
+                foreach($eventData['a']['P'] as $posData) {
+                    if ($posData['s'] === $this->tradingSymbol) {
+                        $newPositionDetails = $this->formatPositionDetailsFromEvent($posData);
+                        $oldQty = (float)($this->currentPositionDetails['quantity'] ?? 0.0);
+                        $newQty = (float)($newPositionDetails['quantity'] ?? 0.0);
 
-                            if ($newQty != 0 && $oldQty == 0) {
-                                $this->logger->info("Position opened/updated via ACCOUNT_UPDATE.", $newPositionDetails);
-                            } elseif ($newQty == 0 && $oldQty != 0) {
-                                $this->logger->info("Position for {$this->tradingSymbol} closed via ACCOUNT_UPDATE. Triggering post-closure logic.");
-                                $this->handlePositionClosed(); // Use the robust version
+                        if ($newQty != 0 && $oldQty == 0) {
+                            $this->logger->info("Position opened/updated via ACCOUNT_UPDATE.", $newPositionDetails);
+                        } elseif ($newQty == 0 && $oldQty != 0) {
+                            // This now acts as a fallback for manual/external closures, avoiding the race condition.
+                            if (($this->currentPositionDetails !== null) || ($this->activeSlOrderId !== null) || ($this->activeTpOrderId !== null)) {
+                                $this->logger->info("Position for {$this->tradingSymbol} closed, likely by external action (manual/liquidation). Triggering fallback cleanup logic.", ['oldQty' => $oldQty, 'newQty' => $newQty]);
+                                $this->handlePositionClosed(); // Use the robust version for reconciliation.
+                            } else {
+                                $this->logger->info("Ignoring position closure from ACCOUNT_UPDATE as state was already reset, likely by a recent ORDER_TRADE_UPDATE.");
                             }
-                            $this->currentPositionDetails = $newPositionDetails;
+                        }
+                        $this->currentPositionDetails = $newPositionDetails;
+                    }
+                }
+            }
+            break;
+
+        case 'ORDER_TRADE_UPDATE':
+            $order = $eventData['o'];
+            if ($order['s'] !== $this->tradingSymbol) return;
+
+            $orderId = (string)$order['i'];
+            $orderStatus = $order['X'];
+            $executionType = $order['x'];
+
+            $commission = (float)($order['n'] ?? 0);
+            $commissionAsset = $order['N'] ?? null;
+            $realizedPnl = (float)($order['rp'] ?? 0.0);
+            $isReduceOnly = (bool)($order['R'] ?? false);
+
+            $this->getUsdtEquivalent((string)$commissionAsset, $commission)->then(function ($commissionUsdt) use ($order, $orderId, $orderStatus, $executionType, $realizedPnl, $isReduceOnly) {
+                // --- Handling Active Entry Order ---
+                if ($orderId === $this->activeEntryOrderId) {
+                    if ($orderStatus === 'FILLED' || ($orderStatus === 'PARTIALLY_FILLED' && $executionType === 'TRADE')) {
+                        $this->logger->info("Entry order {$orderStatus}: {$this->activeEntryOrderId}.");
+                        $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
+
+                        if ($orderStatus === 'FILLED') {
+                            $this->activeEntryOrderId = null;
+                            $this->activeEntryOrderTimestamp = null;
+                            $this->isMissingProtectiveOrder = false;
+                            $this->placeSlAndTpOrders();
+                        }
+                    } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
+                        $this->logger->warning("Entry order {$this->activeEntryOrderId} ended without fill: {$orderStatus}.");
+                        $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['p'], (float)$order['q'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
+                        $this->resetTradeState();
+                        $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Entry order failed: {$orderStatus}."];
+                    }
+                }
+                // --- Handling Active SL/TP Orders ---
+                elseif ($orderId === $this->activeSlOrderId || $orderId === $this->activeTpOrderId) {
+                    if ($orderStatus === 'FILLED' || ($executionType === 'TRADE' && $orderStatus === 'PARTIALLY_FILLED')) {
+                        $isSlFill = ($orderId === $this->activeSlOrderId);
+                        $this->logger->info("Protective order " . ($isSlFill ? "SL" : "TP") . " {$orderId} has a fill event. Capturing P&L and Commission.");
+                        
+                        $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
+                        
+                        if ($orderStatus === 'FILLED') {
+                            $this->logger->info("Position closed by protective order. Triggering full state cleanup from ORDER_TRADE_UPDATE.");
+                            $otherOrderId = $isSlFill ? $this->activeTpOrderId : $this->activeSlOrderId;
+                            $cancelPromise = $otherOrderId ? $this->cancelOrderAndLog($otherOrderId, "remaining protective order") : \React\Promise\resolve();
+                            
+                            $cancelPromise->finally(function() use ($isSlFill) {
+                                $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Position closed by " . ($isSlFill ? "SL" : "TP") . "."];
+                                $this->resetTradeState();
+                                $this->loop->addTimer(2, fn() => $this->triggerAIUpdate());
+                            });
+                        }
+                    } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
+                        $this->logger->warning("SL/TP order {$orderId} ended without fill: {$orderStatus}.");
+                        if ($orderId === $this->activeSlOrderId) $this->activeSlOrderId = null;
+                        if ($orderId === $this->activeTpOrderId) $this->activeTpOrderId = null;
+                        if ($this->currentPositionDetails && !$this->activeSlOrderId && !$this->activeTpOrderId) {
+                            $this->logger->critical("Position open but BOTH SL/TP orders are gone. Flagging critical state.");
+                            $this->isMissingProtectiveOrder = true;
+                            $this->lastAIDecisionResult = ['status' => 'CRITICAL', 'message' => "Position unprotected."];
+                            $this->triggerAIUpdate(true);
                         }
                     }
                 }
-                break;
+                // --- Handling other reduce-only orders (e.g., AI-driven market close) ---
+                elseif ($isReduceOnly && ($orderStatus === 'FILLED' || ($executionType === 'TRADE' && $orderStatus === 'PARTIALLY_FILLED'))) {
+                    $this->logger->info("A general Reduce-Only Order filled. Capturing P&L and Commission.", ['orderType' => $order['ot']]);
+                    $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
 
-            case 'ORDER_TRADE_UPDATE':
-                $order = $eventData['o'];
-                if ($order['s'] !== $this->tradingSymbol) return;
-
-                $orderId = (string)$order['i'];
-                $orderStatus = $order['X'];
-                $executionType = $order['x'];
-
-                // The key change: Extract commission and P&L directly from the event!
-                $commission = (float)($order['n'] ?? 0);
-                $commissionAsset = $order['N'] ?? null;
-                $realizedPnl = (float)($order['rp'] ?? 0.0);
-                $isReduceOnly = (bool)($order['R'] ?? false); // Extract the 'R' field
-
-                $this->getUsdtEquivalent((string)$commissionAsset, $commission)->then(function ($commissionUsdt) use ($order, $orderId, $orderStatus, $executionType, $realizedPnl, $isReduceOnly) {
-                    // --- Handling Active Entry Order ---
-                    if ($orderId === $this->activeEntryOrderId) {
-                        if ($orderStatus === 'FILLED' || ($orderStatus === 'PARTIALLY_FILLED' && $executionType === 'TRADE')) {
-                            $this->logger->info("Entry order {$orderStatus}: {$this->activeEntryOrderId}.");
-                            // Log the trade with its commission. P&L on entry is usually 0.
-                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
-
-                            if ($orderStatus === 'FILLED') {
-                                $this->activeEntryOrderId = null;
-                                $this->activeEntryOrderTimestamp = null;
-                                $this->isMissingProtectiveOrder = false;
-                                $this->placeSlAndTpOrders();
-                            }
-                        } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
-                            $this->logger->warning("Entry order {$this->activeEntryOrderId} ended without fill: {$orderStatus}.");
-                            $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['p'], (float)$order['q'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
-                            $this->resetTradeState();
-                            $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Entry order failed: {$orderStatus}."];
-                        }
+                    if ($orderStatus === 'FILLED') {
+                        $this->logger->info("Position closed by a general reduce-only order. Cleaning up state.");
+                         $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Position closed by " . $order['ot'] . " order."];
+                        // The function that placed this order (e.g., attemptClosePositionByAI) should have already cancelled SL/TP.
+                        // We just need to reset the state and trigger the next cycle.
+                        $this->resetTradeState();
+                        $this->loop->addTimer(2, fn() => $this->triggerAIUpdate());
                     }
-                    // --- Handling Active SL/TP Orders (The CRITICAL FIX) ---
-                    elseif ($orderId === $this->activeSlOrderId || $orderId === $this->activeTpOrderId) {
-                        if ($orderStatus === 'FILLED' || ($executionType === 'TRADE' && $orderStatus === 'PARTIALLY_FILLED')) {
-                            $isSlFill = ($orderId === $this->activeSlOrderId);
-                            $this->logger->info("Protective order " . ($isSlFill ? "SL" : "TP") . " {$orderId} has a fill event. Capturing P&L and Commission.");
-                            
-                            // This is the most important log call. It uses the PNL and commission from the event.
-                            $this->addOrderToLog(
-                                $orderId,
-                                $orderStatus,
-                                $order['S'],
-                                $this->tradingSymbol,
-                                (float)$order['L'],         // Last Filled Price
-                                (float)$order['l'],         // Last Filled Quantity
-                                $this->marginAsset,
-                                time(),
-                                $realizedPnl,               // ** THE REALIZED PNL **
-                                $commissionUsdt,            // ** THE COMMISSION **
-                                $isReduceOnly               // ** IS REDUCE ONLY **
-                            );
-                            
-                            if ($orderStatus === 'FILLED') {
-                                $otherOrderId = $isSlFill ? $this->activeTpOrderId : $this->activeSlOrderId;
-                                if ($otherOrderId) $this->cancelOrderAndLog($otherOrderId, "remaining protective order");
-                                $this->lastAIDecisionResult = ['status' => 'INFO', 'message' => "Position closed by " . ($isSlFill ? "SL" : "TP") . "."];
-                                // The handlePositionClosed will be triggered by the ACCOUNT_UPDATE event, but the primary log is already done.
-                            }
-                        } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
-                            $this->logger->warning("SL/TP order {$orderId} ended without fill: {$orderStatus}.");
-                            if ($orderId === $this->activeSlOrderId) $this->activeSlOrderId = null;
-                            if ($orderId === $this->activeTpOrderId) $this->activeTpOrderId = null;
-                            if ($this->currentPositionDetails && !$this->activeSlOrderId && !$this->activeTpOrderId) {
-                                $this->logger->critical("Position open but BOTH SL/TP orders are gone. Flagging critical state.");
-                                $this->isMissingProtectiveOrder = true;
-                                $this->lastAIDecisionResult = ['status' => 'CRITICAL', 'message' => "Position unprotected."];
-                                $this->triggerAIUpdate(true);
-                            }
-                        }
-                    }
-                    // --- Handling other orders like manual or AI-driven market close ---
-                    elseif ($order['ot'] === 'MARKET' && ($order['R'] ?? false)) {
-                        if ($orderStatus === 'FILLED' || ($executionType === 'TRADE' && $orderStatus === 'PARTIALLY_FILLED')) {
-                            $this->logger->info("Reduce-Only Market Order filled. Capturing P&L and Commission.");
-                             $this->addOrderToLog($orderId, $orderStatus, $order['S'], $this->tradingSymbol, (float)$order['L'], (float)$order['l'], $this->marginAsset, time(), $realizedPnl, $commissionUsdt, $isReduceOnly);
-                        }
-                    }
-                })->otherwise(fn($e) => $this->logger->error("Failed to process commission for order {$orderId}: " . $e->getMessage()));
-                break;
+                }
+            })->otherwise(fn($e) => $this->logger->error("Failed to process commission for order {$orderId}: " . $e->getMessage()));
+            break;
 
-            case 'listenKeyExpired':
-                $this->logger->warning("ListenKey expired. Reconnecting.");
-                $this->listenKey = null;
-                if ($this->wsConnection) { $this->wsConnection->close(); }
-                if ($this->listenKeyRefreshTimer) { $this->loop->cancelTimer($this->listenKeyRefreshTimer); }
-                $this->startUserDataStream()->then(function ($data) {
-                    $this->listenKey = $data['listenKey'] ?? null;
-                    if ($this->listenKey) {
-                        $this->connectWebSocket();
-                        $this->listenKeyRefreshTimer = $this->loop->addPeriodicTimer(self::LISTEN_KEY_REFRESH_INTERVAL, function() { /* Re-create timer logic here */ });
-                    } else {
-                        $this->logger->error("Failed to get new ListenKey. Stopping."); $this->stop();
-                    }
-                })->otherwise(fn() => $this->stop());
-                break;
+        case 'listenKeyExpired':
+            $this->logger->warning("ListenKey expired. Reconnecting.");
+            $this->listenKey = null;
+            if ($this->wsConnection) { $this->wsConnection->close(); }
+            if ($this->listenKeyRefreshTimer) { $this->loop->cancelTimer($this->listenKeyRefreshTimer); }
+            $this->startUserDataStream()->then(function ($data) {
+                $this->listenKey = $data['listenKey'] ?? null;
+                if ($this->listenKey) {
+                    $this->connectWebSocket();
+                    $this->listenKeyRefreshTimer = $this->loop->addPeriodicTimer(self::LISTEN_KEY_REFRESH_INTERVAL, function() { /* Re-create timer logic here */ });
+                } else {
+                    $this->logger->error("Failed to get new ListenKey. Stopping."); $this->stop();
+                }
+            })->otherwise(fn() => $this->stop());
+            break;
 
-            case 'MARGIN_CALL':
-                $this->logger->critical("MARGIN CALL RECEIVED!", $eventData);
-                $this->isMissingProtectiveOrder = true;
-                $this->lastAIDecisionResult = ['status' => 'CRITICAL', 'message' => "MARGIN CALL!"];
-                $this->triggerAIUpdate(true);
-                break;
-        }
+        case 'MARGIN_CALL':
+            $this->logger->critical("MARGIN CALL RECEIVED!", $eventData);
+            $this->isMissingProtectiveOrder = true;
+            $this->lastAIDecisionResult = ['status' => 'CRITICAL', 'message' => "MARGIN CALL!"];
+            $this->triggerAIUpdate(true);
+            break;
     }
-    /**
-     * END OF MODIFIED SECTION
-     */
+}
 
     private function formatPositionDetailsFromEvent(?array $posData): ?array {
         if (empty($posData) || $posData['s'] !== $this->tradingSymbol) return null;
