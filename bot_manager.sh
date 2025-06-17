@@ -1,5 +1,6 @@
 #!/bin/bash
 
+##
 # This script manages the lifecycle of bot.php processes.
 # It uses the bot configuration ID as the unique identifier.
 
