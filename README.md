@@ -37,14 +37,14 @@ graph TD
     L -- HTTP Requests --> J;
     L -- WebSocket Connections --> I;
     L -- Timers --> D;
-    SubGraph Dependencies
+    subgraph Dependencies
         L --> M[React/EventLoop];
         L --> N[React/Socket];
         L --> O[React/Http];
         I --> P[Ratchet/Pawl];
         D --> Q[Monolog];
         D --> R[phpdotenv];
-    End
+    end
 ```
 
 *   **Core Component:** The `AiTradingBotFutures` PHP class is the central orchestrator, managing all trading logic, API interactions, and AI decision-making.
