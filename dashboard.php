@@ -187,34 +187,51 @@ if (isset($_GET['api'])) {
                 $stmt = $pdo->prepare("SELECT id FROM bot_configurations WHERE id = ? AND user_id = ? AND is_active = TRUE");
                 $stmt->execute([$config_id, $current_user_id]);
                 if ($stmt->fetch()) {
-                    $command = escapeshellarg(PHP_EXECUTABLE_PATH) . ' ' . escapeshellarg(BOT_SCRIPT_PATH) . ' ' . escapeshellarg((string)$config_id) . ' > /dev/null 2>&1 &';
-                    shell_exec($command);
-                    sleep(2);
-                    $response = ['status' => 'success', 'message' => "Start command issued for Bot Config ID: {$config_id}."];
+                    $manager_script = __DIR__ . '/bot_manager.sh';
+                    // We capture the output of the script to check for success/error
+                    $command = escapeshellcmd($manager_script) . ' start ' . escapeshellarg((string)$config_id);
+                    // 2>&1 redirects stderr to stdout so we can capture all output
+                    $output = shell_exec($command . ' 2>&1'); 
+
+                    if (strpos($output, 'SUCCESS') !== false) {
+                        $response = ['status' => 'success', 'message' => "Bot start command successful. " . trim($output)];
+                    } else {
+                        http_response_code(500); // Server error
+                        $response = ['status' => 'error', 'message' => "Failed to start bot: " . trim($output)];
+                    }
                 } else {
+                    http_response_code(403);
                     $response['message'] = 'Bot is inactive or you do not have permission.';
                 }
                 break;
 
             case 'stop_bot':
-                $pid = (int)($_POST['pid'] ?? 0);
+                // We no longer need the PID from the frontend. The manager script knows.
                 $config_id = (int)($_POST['config_id'] ?? 0);
                 $stmt = $pdo->prepare("SELECT id FROM bot_configurations WHERE id = ? AND user_id = ?");
                 $stmt->execute([$config_id, $current_user_id]);
-                if ($stmt->fetch() && $pid > 0) {
-                    shell_exec('kill ' . escapeshellarg((string)$pid));
-                    sleep(1);
-                    $update_stmt = $pdo->prepare("UPDATE bot_runtime_status SET status='stopped', process_id=NULL WHERE bot_config_id = ?");
-                    $update_stmt->execute([$config_id]);
-                    $response = ['status' => 'success', 'message' => "Stop command issued for Process ID: {$pid}."];
+                if ($stmt->fetch()) {
+                    $manager_script = __DIR__ . '/bot_manager.sh';
+                    $command = escapeshellcmd($manager_script) . ' stop ' . escapeshellarg((string)$config_id);
+                    $output = shell_exec($command . ' 2>&1');
+
+                    // Check for "ERROR" because the "INFO" message about orphaned processes is not a failure.
+                    if (strpos($output, 'ERROR') === false) {
+                        // The bot's shutdown handler is the primary source of truth for updating the DB.
+                        $response = ['status' => 'success', 'message' => "Bot stop command processed. " . trim($output)];
+                    } else {
+                        http_response_code(500);
+                        $response = ['status' => 'error', 'message' => "Failed to stop bot: " . trim($output)];
+                    }
                 } else {
-                    $response['message'] = 'Invalid Process ID or permission denied.';
+                    http_response_code(403);
+                    $response['message'] = 'Invalid Config ID or permission denied.';
                 }
                 break;
             
             case 'delete_config':
                 $config_id = (int)($_POST['config_id'] ?? 0);
-                $stmt = $pdo->prepare("SELECT bc.id FROM bot_configurations bc LEFT JOIN bot_runtime_status brs ON bc.id = brs.bot_config_id WHERE bc.id = ? AND bc.user_id = ? AND (brs.status IS NULL OR brs.status = 'stopped' OR brs.status = 'error')");
+                $stmt = $pdo->prepare("SELECT bc.id FROM bot_configurations bc LEFT JOIN bot_runtime_status brs ON bc.id = brs.bot_config_id WHERE bc.id = ? AND bc.user_id = ? AND (brs.status IS NULL OR brs.status = 'stopped' OR brs.status = 'error' OR brs.status = 'shutdown')");
                 $stmt->execute([$config_id, $current_user_id]);
                 if (!$stmt->fetch()) throw new Exception("Cannot delete a running bot. Please stop it first.");
                 

@@ -730,6 +730,15 @@ class AiTradingBotFutures
                 $this->stop(); // Ensure bot stops on critical initialization failure
             }
         );
+        // Graceful shutdown handlers for ReactPHP's event loop
+        $this->loop->addSignal(SIGINT, function (int $signal) {
+            $this->logger->warning("Caught signal (SIGINT - Ctrl+C). Initiating shutdown...");
+            $this->stop();
+        });
+        $this->loop->addSignal(SIGTERM, function (int $signal) {
+            $this->logger->warning("Caught signal (SIGTERM - kill). Initiating shutdown...");
+            $this->stop();
+        });
         $this->logger->info('Starting event loop...');
         $this->loop->run(); // This is the main blocking call for ReactPHP
         $this->logger->info('Event loop finished.');
@@ -738,6 +747,7 @@ class AiTradingBotFutures
 
     private function stop(): void
     {
+        $this->updateBotStatus('shutdown');
         $this->logger->info('Stopping event loop and resources...');
         if ($this->heartbeatTimer) {
              $this->loop->cancelTimer($this->heartbeatTimer);
@@ -2339,21 +2349,28 @@ try {
     );
     $bot->run();
 } catch (\Throwable $e) {
-    $errorMessage = "CRITICAL: Bot for config ID {$botConfigId} stopped due to unhandled exception: " . $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine();
-    $fullErrorMessage = $errorMessage . "\nStack trace:\n" . $e->getTraceAsString();
-    error_log($fullErrorMessage);
+    // This block catches fatal errors during initialization or unhandled exceptions in the loop.
+    $errorMessage = "FATAL_ERROR for config ID {$botConfigId}: " . $e->getMessage() . " in " . basename($e->getFile()) . " on line " . $e->getLine();
+    error_log($errorMessage); // Log to system error log
 
+    // Attempt to update the database to reflect the CRASHED state.
     try {
-        $pdo = new PDO("mysql:host={$dbHost};port={$dbPort};dbname={$dbName};charset=utf8mb4", $dbUser, $dbPassword);
+        $pdo = new PDO("mysql:host={$dbHost};port={$dbPort};dbname={$dbName};charset=utf8mb4", $dbUser, $dbPassword, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $stmt = $pdo->prepare("
-            UPDATE bot_runtime_status SET status = 'error', last_heartbeat = NOW(), error_message = :error_message, process_id = NULL WHERE bot_config_id = :bot_config_id
+            UPDATE bot_runtime_status 
+            SET status = 'error', 
+                last_heartbeat = NOW(), 
+                error_message = :error_message, 
+                process_id = NULL 
+            WHERE bot_config_id = :bot_config_id
         ");
-        // Ensure the error message fits the database column (e.g., VARCHAR(255) or TEXT)
-        $dbErrorMessage = substr($fullErrorMessage, 0, 65535); // Assuming error_message is TEXT or similar
+        // Ensure the error message fits the database column (e.g., TEXT type is best)
+        $dbErrorMessage = substr($errorMessage . "\n" . $e->getTraceAsString(), 0, 65535); 
         $stmt->execute([':error_message' => $dbErrorMessage, ':bot_config_id' => $botConfigId]);
         error_log("Bot runtime status updated to 'error' in DB for config ID {$botConfigId}.");
     } catch (\PDOException $db_e) {
-        error_log("Further DB error when trying to log bot shutdown error: " . $db_e->getMessage());
+        // If this fails, the DB is likely down. There's nothing more we can do.
+        error_log("CRITICAL: Could not connect to DB to log the bot's fatal error: " . $db_e->getMessage());
     }
-    exit(1);
+    exit(1); // Exit with a non-zero status code to indicate failure
 }
