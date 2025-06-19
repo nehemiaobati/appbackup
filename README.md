@@ -433,3 +433,155 @@ The bot will start logging its activities to your console. You can use process m
 *   **AI Response Issues (e.g., "AI response missing text content", "Failed to decode JSON from AI text"):** This indicates a problem with the AI model's response. Check your `GEMINI_MODEL_NAME` and `GEMINI_API_KEY` (the one stored in DB). The AI might be returning malformed JSON or being blocked. Review the `ai_interactions_log` for raw AI responses.
 *   **Bot Overrides AI Action:** This is a safety feature. The bot's internal logic prioritizes account safety. Review the logs for "AI Action Overridden by Bot Logic" messages to understand why a decision was overridden. Adjust your AI strategy or bot configuration if necessary.
 *   **Position Unprotected / Missing SL/TP:** The bot will log critical warnings and trigger emergency AI updates if protective orders are missing. This can happen if orders fail to place or are unexpectedly cancelled. The bot will attempt to rectify this, potentially by closing the position.
+
+
+
+
+
+//
+Of course. Running the bot_manager.sh script is the correct way to start and stop your bot instances from the terminal. It's designed to be simple and robust.
+
+Here’s a clear, step-by-step guide on how to use it.
+
+Step 1: Navigate to the Project Directory
+
+First, open your terminal and change your current directory to the root of the bot project.
+
+Generated bash
+cd /path/to/your/nehemiaobati-appbackup/
+
+Step 2: Make the Script Executable (One-time setup)
+
+Before you can run the script, you need to give it execute permissions. You only need to do this once.
+
+Generated bash
+chmod +x bot_manager.sh
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+Bash
+IGNORE_WHEN_COPYING_END
+Step 3: Find Your config_id
+
+You need to know the id of the bot configuration you want to run. This ID comes from the bot_configurations table in your database.
+
+You can find it by logging into your database and running a query like this:
+
+Generated sql
+SELECT id, name, symbol, is_active FROM bot_configurations;
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+SQL
+IGNORE_WHEN_COPYING_END
+
+This might give you an output like:
+
+Generated code
++----+-----------------------+---------+-----------+
+| id | name                  | symbol  | is_active |
++----+-----------------------+---------+-----------+
+|  1 | Default Testnet Bot   | BTCUSDT |         1 |
++----+-----------------------+---------+-----------+
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+IGNORE_WHEN_COPYING_END
+
+In this case, the config_id you want to use is 1.
+
+Step 4: Run the Bot Manager Script
+
+The script requires two arguments:
+
+The action (start or stop).
+
+The config_id you found in the previous step.
+
+To Start a Bot:
+
+Use the start command followed by the configuration ID.
+
+Syntax: ./bot_manager.sh start <config_id>
+
+Example (to start the bot with ID 1):
+
+Generated bash
+./bot_manager.sh start 1
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+Bash
+IGNORE_WHEN_COPYING_END
+
+Expected Output:
+The script will start the PHP bot in the background, create a log file, and store the bot's Process ID (PID).
+
+Generated code
+Starting bot for config ID 1...
+SUCCESS: Bot started with PID 12345. Log: /path/to/your/nehemiaobati-appbackup/logs/1.log
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+IGNORE_WHEN_COPYING_END
+To Stop a Bot:
+
+Use the stop command followed by the configuration ID.
+
+Syntax: ./bot_manager.sh stop <config_id>
+
+Example (to stop the bot with ID 1):
+
+Generated bash
+./bot_manager.sh stop 1
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+Bash
+IGNORE_WHEN_COPYING_END
+
+Expected Output:
+The script will read the PID from the corresponding file, send a shutdown signal to the bot, and then clean up the PID file.
+
+Generated code
+Stopping bot for config ID 1 (PID: 12345)...
+SUCCESS: Bot stopped.
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+IGNORE_WHEN_COPYING_END
+How to Check if it's Running
+
+Check the Logs: The best way to see what the bot is doing is to "tail" its log file. The bot_manager.sh script tells you the exact path to the log file.
+
+Generated bash
+# This will show you the live, real-time output of your bot
+tail -f logs/1.log
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+Bash
+IGNORE_WHEN_COPYING_END
+
+Check the Process List: You can use ps to see if the PHP process is active.
+
+Generated bash
+ps aux | grep "bot.php 1"
+IGNORE_WHEN_COPYING_START
+content_copy
+download
+Use code with caution. 
+Bash
+IGNORE_WHEN_COPYING_END
+
+If it's running, you will see a line corresponding to your bot process.
+
+Check the Dashboard: The dashboard you've built also shows the live status, which it pulls from the bot_runtime_status table. This is the most user-friendly way to check.
