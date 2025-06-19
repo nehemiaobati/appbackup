@@ -1177,16 +1177,36 @@ private function handleUserDataStreamEvent(array $eventData): void
 
                     foreach ($tradeHistory as $trade) {
                         // A simple check for a recent reduce-only trade that matches the closed quantity.
+                        // Also ensure the trade is recent enough (e.g., within the last few minutes of closure)
+                        // and has a realized PnL or commission.
                         if (($trade['reduceOnly'] ?? false) && abs((float)$trade['qty'] - $quantityClosed) < 1e-9 && $trade['side'] === $closeSide) {
-                             $closingTrade = $trade;
-                             break;
+                            $closingTrade = $trade;
+                            break;
                         }
                     }
 
                     if ($closingTrade) {
-                        $this->logger->info("Fallback Check: Found a potential closing trade in history. Verifying if already logged.", ['trade' => $closingTrade]);
-                        // You could add logic here to check if an order with this ID and PNL was already logged to prevent duplicates.
-                        // For now, we assume the primary WS handler is the source of truth and this is just for logging/debugging.
+                        $this->logger->info("Fallback Check: Found a potential closing trade in history. Logging P&L and Commission.", ['trade' => $closingTrade]);
+                        $commission = (float)($closingTrade['commission'] ?? 0);
+                        $commissionAsset = $closingTrade['commissionAsset'] ?? null;
+                        $realizedPnl = (float)($closingTrade['realizedPnl'] ?? 0.0);
+                        $isReduceOnly = (bool)($closingTrade['reduceOnly'] ?? false);
+
+                        $this->getUsdtEquivalent((string)$commissionAsset, $commission)->then(function ($commissionUsdt) use ($closingTrade, $realizedPnl, $isReduceOnly) {
+                            $this->addOrderToLog(
+                                (string)$closingTrade['orderId'],
+                                'FILLED_FALLBACK_RECONCILED', // Distinct status for fallback logging
+                                $closingTrade['side'],
+                                $this->tradingSymbol,
+                                (float)$closingTrade['price'],
+                                (float)$closingTrade['qty'],
+                                $this->marginAsset,
+                                (int)($closingTrade['time'] / 1000), // Convert ms to seconds
+                                $realizedPnl,
+                                $commissionUsdt,
+                                $isReduceOnly
+                            );
+                        })->otherwise(fn($e) => $this->logger->error("Fallback Check: Failed to convert commission for closing trade: " . $e->getMessage()));
                     } else {
                         $this->logger->warning("Fallback Check: Could not find an exact closing trade in recent history. The primary WS handler should have logged the P&L.");
                     }
