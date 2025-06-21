@@ -914,19 +914,39 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 data.aiLogs.forEach(log => {
                     const decisionParams = JSON.parse(log.ai_decision_params_json || '{}');
-                    let aiDecisionText = decisionParams.decision || 'N/A';
-                    if (decisionParams.price) aiDecisionText += ` @ ${decisionParams.price}`;
-                    if (decisionParams.sl) aiDecisionText += ` SL:${decisionParams.sl}`;
-                    if (decisionParams.tp) aiDecisionText += ` TP:${decisionParams.tp}`;
-                    
-                    const botFeedback = JSON.parse(log.bot_feedback_json || '{}');
-                    const botFeedbackText = botFeedback.message || 'No specific feedback.';
+                    const feedback = JSON.parse(log.bot_feedback_json || '{}');
+
+                    let feedbackHtml = '';
+                    if (feedback.override_reason) {
+                        feedbackHtml = `<span class="text-warning">Bot Override:</span> ${feedback.override_reason}`;
+                    } else {
+                        feedbackHtml = `<span>${decisionParams.rationale || 'No rationale provided.'}</span>`;
+                    }
+
+                    let aiDecisionText = '';
+                    if (decisionParams.action) {
+                        aiDecisionText = decisionParams.action;
+                        if (decisionParams.side) aiDecisionText += ` <strong class="text-${decisionParams.side === 'BUY' ? 'success' : 'danger'}">${decisionParams.side}</strong>`;
+                        if (decisionParams.entryPrice) aiDecisionText += ` @ ${decisionParams.entryPrice}`;
+                        if (decisionParams.quantity) aiDecisionText += `, Qty: ${decisionParams.quantity}`;
+                        if (decisionParams.stopLossPrice) aiDecisionText += `, SL: ${decisionParams.stopLossPrice}`;
+                        if (decisionParams.takeProfitPrice) aiDecisionText += `, TP: ${decisionParams.takeProfitPrice}`;
+                    } else {
+                        aiDecisionText = 'N/A';
+                    }
                     
                     aiLogsHtml += `
                         <div class="ai-log-entry mx-2">
-                            <span class="text-muted">${new Date(log.log_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</span> - 
-                            <strong class="text-primary">${log.executed_action_by_bot}</strong>, ${botFeedbackText}
-                            <br><small><strong>AI Decision:</strong> ${aiDecisionText}</small>
+                            <div>
+                                <span class="text-muted">${new Date(log.log_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</span> - 
+                                <strong class="text-primary">${log.executed_action_by_bot}</strong>
+                            </div>
+                            <div class="ps-2" style="font-size: 0.9em;">
+                                <strong>Bot Feedback:</strong> ${feedbackHtml}
+                            </div>
+                            <div class="ps-2" style="font-size: 0.9em;">
+                                <small><strong>Original AI Decision:</strong> ${aiDecisionText}</small>
+                            </div>
                         </div>`;
                 });
             }
