@@ -96,6 +96,7 @@ CREATE TABLE `orders_log` (
   `user_id` int(11) NOT NULL,
   `bot_config_id` int(11) NOT NULL,
   `order_id_binance` varchar(50) DEFAULT NULL,
+  `trade_id_binance` bigint(20) DEFAULT NULL COMMENT 'The unique trade ID from the exchange for a specific fill event.',
   `bot_event_timestamp_utc` datetime NOT NULL,
   `symbol` varchar(20) NOT NULL,
   `side` varchar(10) NOT NULL,
@@ -197,6 +198,7 @@ ALTER TABLE `bot_runtime_status`
 --
 ALTER TABLE `orders_log`
   ADD PRIMARY KEY (`internal_id`),
+  ADD UNIQUE KEY `uk_order_trade` (`order_id_binance`, `trade_id_binance`),
   ADD KEY `idx_user_id` (`user_id`),
   ADD KEY `idx_bot_config_id` (`bot_config_id`),
   ADD KEY `idx_symbol_timestamp` (`symbol`,`bot_event_timestamp_utc`),

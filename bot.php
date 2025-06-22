@@ -642,24 +642,38 @@ class AiTradingBotFutures
      * Logs an order event to the database.
      * @return bool True on success.
      */
-    private function logOrderToDb(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): bool
+    private function logOrderToDb(string $orderId, ?string $tradeId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): bool
     {
         if (!$this->pdo) {
             return false;
         }
-        $sql = "INSERT INTO orders_log (user_id, bot_config_id, order_id_binance, bot_event_timestamp_utc, symbol, side, status_reason, price_point, quantity_involved, margin_asset, realized_pnl_usdt, commission_usdt, reduce_only)
-                VALUES (:user_id, :bot_config_id, :order_id_binance, :bot_event_timestamp_utc, :symbol, :side, :status_reason, :price_point, :quantity_involved, :margin_asset, :realized_pnl_usdt, :commission_usdt, :reduce_only)";
+        $sql = "INSERT INTO orders_log (user_id, bot_config_id, order_id_binance, trade_id_binance, bot_event_timestamp_utc, symbol, side, status_reason, price_point, quantity_involved, margin_asset, realized_pnl_usdt, commission_usdt, reduce_only)
+                VALUES (:user_id, :bot_config_id, :order_id_binance, :trade_id_binance, :bot_event_timestamp_utc, :symbol, :side, :status_reason, :price_point, :quantity_involved, :margin_asset, :realized_pnl_usdt, :commission_usdt, :reduce_only)";
         try {
             $stmt = $this->pdo->prepare($sql);
             return $stmt->execute([
-                ':user_id' => $this->userId, ':bot_config_id' => $this->botConfigId,
-                ':order_id_binance' => $orderId, ':bot_event_timestamp_utc' => gmdate('Y-m-d H:i:s', $timestamp),
-                ':symbol' => $assetPair, ':side' => $side, ':status_reason' => $status,
-                ':price_point' => $price, ':quantity_involved' => $quantity,
-                ':margin_asset' => $marginAsset, ':realized_pnl_usdt' => $realizedPnl,
-                ':commission_usdt' => $commissionUsdt, ':reduce_only' => (int)$reduceOnly
+                ':user_id' => $this->userId,
+                ':bot_config_id' => $this->botConfigId,
+                ':order_id_binance' => $orderId,
+                ':trade_id_binance' => $tradeId,
+                ':bot_event_timestamp_utc' => gmdate('Y-m-d H:i:s', $timestamp),
+                ':symbol' => $assetPair,
+                ':side' => $side,
+                ':status_reason' => $status,
+                ':price_point' => $price,
+                ':quantity_involved' => $quantity,
+                ':margin_asset' => $marginAsset,
+                ':realized_pnl_usdt' => $realizedPnl,
+                ':commission_usdt' => $commissionUsdt,
+                ':reduce_only' => (int)$reduceOnly
             ]);
         } catch (\PDOException $e) {
+            // Gracefully handle duplicate trade log attempts
+            if ($e->getCode() == 23000) { // Integrity constraint violation (e.g., duplicate unique key)
+                $this->logger->debug("Attempted to log a duplicate trade. Ignoring.", ['orderId' => $orderId, 'tradeId' => $tradeId]);
+                return true; // Still a success as the data is already logged.
+            }
+            $this->logger->error("Failed to log order to DB.", ['err' => $e->getMessage()]);
             return false;
         }
     }
@@ -674,8 +688,8 @@ class AiTradingBotFutures
         if (!$this->pdo) {
             return [['error' => 'Database not connected']];
         }
-        $sql = "SELECT order_id_binance as orderId, status_reason as status, side, symbol as assetPair, price_point as price, quantity_involved as quantity, margin_asset as marginAsset, DATE_FORMAT(bot_event_timestamp_utc, '%Y-%m-%d %H:%i:%s UTC') as timestamp, realized_pnl_usdt as realizedPnl, reduce_only as reduceOnly
-                FROM orders_log WHERE bot_config_id = :bot_config_id ORDER BY bot_event_timestamp_utc DESC LIMIT :limit";
+        $sql = "SELECT order_id_binance as orderId, trade_id_binance as tradeId, status_reason as status, side, symbol as assetPair, price_point as price, quantity_involved as quantity, margin_asset as marginAsset, DATE_FORMAT(bot_event_timestamp_utc, '%Y-%m-%d %H:%i:%s UTC') as timestamp, realized_pnl_usdt as realizedPnl, reduce_only as reduceOnly
+                FROM orders_log WHERE bot_config_id = :bot_config_id ORDER BY bot_event_timestamp_utc DESC, internal_id DESC LIMIT :limit";
         try {
             $stmt = $this->pdo->prepare($sql);
             $stmt->bindValue(':bot_config_id', $this->botConfigId, PDO::PARAM_INT);
@@ -914,7 +928,7 @@ class AiTradingBotFutures
     }
 
     /**
-     * Handles order update events, the primary driver of state transitions.
+     * Handles order update events. It logs every fill and drives state transitions.
      * @param array $orderData The 'o' object from the ORDER_TRADE_UPDATE event.
      * @return void
      */
@@ -926,32 +940,72 @@ class AiTradingBotFutures
 
         $orderId = (string)$orderData['i'];
         $orderStatus = $orderData['X'];
+        $executionType = $orderData['x'];
 
-        $this->getUsdtEquivalent((string)($orderData['N'] ?? null), (float)($orderData['n'] ?? 0))
-            ->then(function ($commissionUsdt) use ($orderData, $orderId, $orderStatus) {
-                if ($orderId === $this->activeEntryOrderId && $this->botState === self::STATE_ORDER_PENDING) {
-                    if ($orderStatus === 'FILLED') {
-                        $this->addOrderToLog($orderId, $orderStatus, $orderData['S'], $this->tradingSymbol, (float)$orderData['L'], (float)$orderData['l'], $this->marginAsset, time(), (float)($orderData['rp'] ?? 0.0), $commissionUsdt);
+        // --- Generic Fill Logging ---
+        // Log every single trade (fill) event, regardless of the bot's state.
+        if ($executionType === 'TRADE' && (float)$orderData['l'] > 0) {
+            $this->getUsdtEquivalent((string)($orderData['N'] ?? 'USDT'), (float)($orderData['n'] ?? 0))
+                ->then(function ($commissionUsdt) use ($orderData) {
+                    $this->addOrderToLog(
+                        orderId: (string)$orderData['i'],
+                        tradeId: (string)$orderData['t'],
+                        status: "{$orderData['x']} ({$orderData['X']})", // e.g., "TRADE (FILLED)"
+                        side: $orderData['S'],
+                        assetPair: $this->tradingSymbol,
+                        price: (float)$orderData['L'], // Last Filled Price
+                        quantity: (float)$orderData['l'], // Last Filled Quantity
+                        marginAsset: (string)($orderData['N'] ?? 'USDT'),
+                        timestamp: (int)($orderData['T'] / 1000), // Convert ms to s
+                        realizedPnl: (float)($orderData['rp'] ?? 0.0),
+                        commissionUsdt: $commissionUsdt,
+                        reduceOnly: (bool)($orderData['R'] ?? false)
+                    );
+                });
+        }
 
-                        // FIX: Reset the active entry order ID to prevent trying to cancel it later.
-                        $this->activeEntryOrderId = null;
-                        $this->activeEntryOrderTimestamp = null;
+        // --- State Machine Management ---
+        // React to terminal order status changes to drive the bot's state.
+        if ($orderStatus === 'FILLED') {
+            if ($orderId === $this->activeEntryOrderId && $this->botState === self::STATE_ORDER_PENDING) {
+                // Entry order has been completely filled.
+                $this->logger->info("Entry order {$orderId} completely filled. Transitioning to place SL/TP.");
+                $this->activeEntryOrderId = null; // Clear the tracked ID
+                $this->activeEntryOrderTimestamp = null;
 
-                        $this->getPositionInformation($this->tradingSymbol)->then(function ($posData) {
-                            $this->currentPositionDetails = $this->formatPositionDetails($posData);
-                            $this->transitionToState(self::STATE_POSITION_UNPROTECTED, ['reason' => 'Entry order filled']);
-                            $this->placeSlAndTpOrders();
-                        });
-                    } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
-                        $this->addOrderToLog($orderId, $orderStatus, $orderData['S'], $this->tradingSymbol, (float)$orderData['p'], (float)$orderData['q'], $this->marginAsset, time(), 0.0, $commissionUsdt);
-                        $this->transitionToState(self::STATE_IDLE, ['reason' => "Entry order failed: {$orderStatus}"]);
-                    }
-                } elseif (($orderData['R'] ?? false) && $orderStatus === 'FILLED') { // Is a Reduce-Only order that filled
-                    $this->addOrderToLog($orderId, $orderStatus, $orderData['S'], $this->tradingSymbol, (float)$orderData['L'], (float)$orderData['l'], $this->marginAsset, time(), (float)($orderData['rp'] ?? 0.0), $commissionUsdt, (bool)$orderData['R']);
-                    $this->handlePositionClosed();
-                }
-            });
+                $this->getPositionInformation($this->tradingSymbol)->then(function ($posData) {
+                    $this->currentPositionDetails = $this->formatPositionDetails($posData);
+                    $this->transitionToState(self::STATE_POSITION_UNPROTECTED, ['reason' => 'Entry order filled']);
+                    $this->placeSlAndTpOrders();
+                });
+            } elseif ($orderData['R'] ?? false) {
+                // A reduce-only order (like SL or TP) has been filled, closing the position.
+                $this->logger->info("Reduce-only order {$orderId} (likely SL/TP) filled. Closing position.");
+                $this->handlePositionClosed();
+            }
+        } elseif (in_array($orderStatus, ['CANCELED', 'EXPIRED', 'REJECTED'])) {
+            if ($orderId === $this->activeEntryOrderId && $this->botState === self::STATE_ORDER_PENDING) {
+                // The pending entry order failed.
+                $this->logger->warning("Pending entry order {$orderId} failed with status: {$orderStatus}. Returning to IDLE.");
+                $this->addOrderToLog(
+                    orderId: $orderId,
+                    tradeId: null, // No tradeId for a cancelled/failed order
+                    status: $orderStatus,
+                    side: $orderData['S'],
+                    assetPair: $this->tradingSymbol,
+                    price: (float)$orderData['p'],
+                    quantity: (float)$orderData['q'],
+                    marginAsset: $this->marginAsset,
+                    timestamp: time(),
+                    realizedPnl: 0.0,
+                    commissionUsdt: 0.0,
+                    reduceOnly: (bool)($orderData['R'] ?? false)
+                );
+                $this->transitionToState(self::STATE_IDLE, ['reason' => "Entry order failed: {$orderStatus}"]);
+            }
+        }
     }
+
 
     /**
      * Handles the expiration of the user data stream listen key.
@@ -1154,11 +1208,11 @@ class AiTradingBotFutures
      * A wrapper function that logs order outcomes to the console and DB.
      * @return void
      */
-    private function addOrderToLog(string $orderId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): void
+    private function addOrderToLog(string $orderId, ?string $tradeId, string $status, string $side, string $assetPair, ?float $price, ?float $quantity, ?string $marginAsset, int $timestamp, ?float $realizedPnl, ?float $commissionUsdt = 0.0, bool $reduceOnly = false): void
     {
-        $logEntry = compact('orderId', 'status', 'side', 'assetPair', 'price', 'quantity', 'marginAsset', 'timestamp', 'realizedPnl', 'commissionUsdt', 'reduceOnly');
+        $logEntry = compact('orderId', 'tradeId', 'status', 'side', 'assetPair', 'price', 'quantity', 'marginAsset', 'timestamp', 'realizedPnl', 'commissionUsdt', 'reduceOnly');
         $this->logger->info('Trade/Order outcome logged:', $logEntry);
-        $this->logOrderToDb($orderId, $status, $side, $assetPair, $price, $quantity, $marginAsset, $timestamp, $realizedPnl, $commissionUsdt, $reduceOnly);
+        $this->logOrderToDb($orderId, $tradeId, $status, $side, $assetPair, $price, $quantity, $marginAsset, $timestamp, $realizedPnl, $commissionUsdt, $reduceOnly);
     }
 
     /**
@@ -1795,8 +1849,30 @@ PROMPT;
         $this->aiSuggestedEntryPrice = (float)($params['entryPrice'] ?? 0);
         $this->aiSuggestedSlPrice = (float)($params['stopLossPrice'] ?? 0);
         $this->aiSuggestedTpPrice = (float)($params['takeProfitPrice'] ?? 0);
-        $this->aiSuggestedQuantity = (float)($params['quantity'] ?? 0);
         $this->aiSuggestedLeverage = (int)($params['leverage'] ?? 0);
+
+        // Get the configured quantity determination method
+        $strategyDirectives = $this->currentActiveTradeLogicSource['strategy_directives'] ?? [];
+        $quantityMethod = $strategyDirectives['quantity_determination_method'] ?? 'AI_SUGGESTED';
+
+        if ($quantityMethod === 'INITIAL_MARGIN_TARGET') {
+            $this->logger->debug("Calculating quantity based on INITIAL_MARGIN_TARGET.", ['target_usdt' => $this->initialMarginTargetUsdt]);
+            // Validate inputs for calculation
+            if ($this->initialMarginTargetUsdt <= 0 || $this->aiSuggestedEntryPrice <= 0 || $this->aiSuggestedLeverage <= 0) {
+                $this->logger->error("Cannot calculate quantity for INITIAL_MARGIN_TARGET due to invalid inputs.", [
+                    'target' => $this->initialMarginTargetUsdt,
+                    'entry' => $this->aiSuggestedEntryPrice,
+                    'leverage' => $this->aiSuggestedLeverage
+                ]);
+                $this->aiSuggestedQuantity = 0; // Ensure it fails validation later
+            } else {
+                // Perform the calculation as per the bot's configuration
+                $this->aiSuggestedQuantity = ($this->initialMarginTargetUsdt * $this->aiSuggestedLeverage) / $this->aiSuggestedEntryPrice;
+            }
+        } else { // Default to 'AI_SUGGESTED'
+            $this->logger->debug("Using quantity suggested by AI.");
+            $this->aiSuggestedQuantity = (float)($params['quantity'] ?? 0);
+        }
 
         if (!in_array($this->aiSuggestedSide, ['BUY', 'SELL'])) {
             return false;
