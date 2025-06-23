@@ -492,7 +492,7 @@ class AiTradingBotFutures
         $this->takeProfitTargetUsdt = (float)$config['take_profit_target_usdt'];
         $this->profitCheckIntervalSeconds = (int)$config['profit_check_interval_seconds'];
         $this->maxScriptRuntimeSeconds = 604800; // Hardcoded max runtime
-        $this->historicalKlineIntervalsAIArray = ['1m', '5m', '15m', '30m', '1h', '6h', '12h', '1d'];
+        $this->historicalKlineIntervalsAIArray = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'];
         $this->primaryHistoricalKlineIntervalAI = '5m';
 
         $this->logger->info("Bot configuration loaded successfully from DB.", ['config_name' => $config['name']]);
@@ -543,7 +543,7 @@ class AiTradingBotFutures
         return [
             'schema_version' => '1.0.0', 'strategy_type' => 'GENERAL_TRADING', 'current_market_bias' => 'NEUTRAL',
             'User prompt' => [],
-            'preferred_timeframes_for_entry' => ['1m', '5m', '15m'],
+            'preferred_timeframes_for_entry' => ['3m', '5m', '15m'],
             'key_sr_levels_to_watch' => ['support' => [], 'resistance' => []],
             'risk_parameters' => ['target_risk_per_trade_usdt' => 0.5, 'default_rr_ratio' => 3, 'max_concurrent_positions' => 1],
             'quantity_determination_method' => 'INITIAL_MARGIN_TARGET',
