@@ -1350,7 +1350,7 @@ class AiTradingBotFutures
 
         $multiTfKlinePromises = [];
         foreach ($this->historicalKlineIntervalsAIArray as $interval) {
-            $multiTfKlinePromises[$interval] = $this->getHistoricalKlines($this->tradingSymbol, $interval, 20)->otherwise(fn() => []);
+            $multiTfKlinePromises[$interval] = $this->getHistoricalKlines($this->tradingSymbol, $interval, 55)->otherwise(fn() => []);
         }
         $promises['historical_klines'] = \React\Promise\all($multiTfKlinePromises);
 
