@@ -243,6 +243,46 @@ if (isset($_GET['api'])) {
                 $response = ['status' => 'success', 'message' => 'Bot configuration deleted successfully. Redirecting...'];
                 break;
 
+            case 'update_config':
+                $config_id = (int)($_POST['config_id'] ?? 0);
+                $stmt = $pdo->prepare("SELECT id FROM bot_configurations WHERE id = ? AND user_id = ?");
+                $stmt->execute([$config_id, $current_user_id]);
+                if (!$stmt->fetch()) throw new Exception("Configuration not found or permission denied.");
+                
+                $update_stmt = $pdo->prepare("
+                    UPDATE bot_configurations SET 
+                        name = :name, symbol = :symbol, kline_interval = :kline_interval, 
+                        margin_asset = :margin_asset, default_leverage = :default_leverage, 
+                        order_check_interval_seconds = :order_check_interval_seconds, 
+                        ai_update_interval_seconds = :ai_update_interval_seconds, use_testnet = :use_testnet, 
+                        initial_margin_target_usdt = :initial_margin_target_usdt, 
+                        take_profit_target_usdt = :take_profit_target_usdt, 
+                        pending_entry_order_cancel_timeout_seconds = :pending_entry_order_cancel_timeout_seconds, 
+                        profit_check_interval_seconds = :profit_check_interval_seconds, is_active = :is_active,
+                        quantity_determination_method = :quantity_determination_method,
+                        allow_ai_to_update_strategy = :allow_ai_to_update_strategy
+                    WHERE id = :id AND user_id = :user_id");
+                $update_stmt->execute([
+                    ':name' => $_POST['name'], ':symbol' => $_POST['symbol'], 
+                    ':kline_interval' => $_POST['kline_interval'], 
+                    ':margin_asset' => $_POST['margin_asset'], 
+                    ':default_leverage' => (int)$_POST['default_leverage'], 
+                    ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], 
+                    ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], 
+                    ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, 
+                    ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], 
+                    ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], 
+                    ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], 
+                    ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], 
+                    ':is_active' => isset($_POST['is_active']) ? 1 : 0, 
+                    ':quantity_determination_method' => $_POST['quantity_determination_method'],
+                    ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0,
+                    ':id' => $config_id, ':user_id' => $current_user_id
+                ]);
+                
+                $response = ['status' => 'success', 'message' => "Configuration '" . htmlspecialchars($_POST['name']) . "' updated successfully."];
+                break;
+
             case 'update_strategy':
                 $strategy_json = $_POST['strategy_json'] ?? '';
                 $strategy_id = (int)($_POST['strategy_id'] ?? 0);
@@ -424,53 +464,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: dashboard.php');
                     exit;
 
-                case 'update_config': // This is now an AJAX endpoint, but we keep the logic here for when JS fails
-                    header('Content-Type: application/json');
-                    $response = ['status' => 'error', 'message' => 'Update failed.'];
-                    try {
-                        $config_id = (int)($_POST['config_id'] ?? 0);
-                        $stmt = $pdo->prepare("SELECT id FROM bot_configurations WHERE id = ? AND user_id = ?");
-                        $stmt->execute([$config_id, $current_user_id]);
-                        if (!$stmt->fetch()) throw new Exception("Configuration not found or permission denied.");
-                        
-                        $update_stmt = $pdo->prepare("
-                            UPDATE bot_configurations SET 
-                                name = :name, symbol = :symbol, kline_interval = :kline_interval, 
-                                margin_asset = :margin_asset, default_leverage = :default_leverage, 
-                                order_check_interval_seconds = :order_check_interval_seconds, 
-                                ai_update_interval_seconds = :ai_update_interval_seconds, use_testnet = :use_testnet, 
-                                initial_margin_target_usdt = :initial_margin_target_usdt, 
-                                take_profit_target_usdt = :take_profit_target_usdt, 
-                                pending_entry_order_cancel_timeout_seconds = :pending_entry_order_cancel_timeout_seconds, 
-                                profit_check_interval_seconds = :profit_check_interval_seconds, is_active = :is_active,
-                                quantity_determination_method = :quantity_determination_method,
-                                allow_ai_to_update_strategy = :allow_ai_to_update_strategy
-                            WHERE id = :id AND user_id = :user_id");
-                        $update_stmt->execute([
-                            ':name' => $_POST['name'], ':symbol' => $_POST['symbol'], 
-                            ':kline_interval' => $_POST['kline_interval'], 
-                            ':margin_asset' => $_POST['margin_asset'], 
-                            ':default_leverage' => (int)$_POST['default_leverage'], 
-                            ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], 
-                            ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], 
-                            ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, 
-                            ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], 
-                            ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], 
-                            ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], 
-                            ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], 
-                            ':is_active' => isset($_POST['is_active']) ? 1 : 0, 
-                            ':quantity_determination_method' => $_POST['quantity_determination_method'],
-                            ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0,
-                            ':id' => $config_id, ':user_id' => $current_user_id
-                        ]);
-                        
-                        $response = ['status' => 'success', 'message' => "Configuration '" . htmlspecialchars($_POST['name']) . "' updated successfully."];
-                    } catch (Throwable $e) {
-                        http_response_code(500);
-                        $response['message'] = $e->getMessage();
-                    }
-                    echo json_encode($response);
-                    exit;
             }
         }
     } catch (Throwable $e) {
@@ -1038,7 +1031,7 @@ document.addEventListener('DOMContentLoaded', () => {
             button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
 
             try {
-                const response = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+                const response = await fetch('dashboard.php?api=true&action=update_config', { method: 'POST', body: new FormData(form) });
                 const data = await response.json();
                 showAlert(data.message, data.status, true);
             } catch (error) {
