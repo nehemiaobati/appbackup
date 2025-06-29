@@ -19,7 +19,6 @@
     "default_rr_ratio": 3,
     "max_concurrent_positions": 1
   },
-  "quantity_determination_method": "INITIAL_MARGIN_TARGET",
   "entry_conditions_keywords": [
     "momentum_confirm",
     "breakout_consolidation"
@@ -35,6 +34,5 @@
   },
   "ai_confidence_threshold_for_trade": 0.7,
   "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.",
-  "allow_ai_to_update_self": false,
   "emergency_hold_justification": "Wait for clear market signal or manual intervention."
 }

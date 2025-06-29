@@ -135,7 +135,7 @@ if (isset($_GET['api'])) {
 
                 // 4. Get recent trades
                 $stmt_trades = $pdo->prepare("
-                    SELECT symbol, side, price_point, quantity_involved, bot_event_timestamp_utc, realized_pnl_usdt, commission_usdt
+                    SELECT symbol, side, price_point, quantity_involved, bot_event_timestamp_utc, realized_pnl_usdt, commission_usdt, reduce_only
                     FROM orders_log WHERE bot_config_id = ? AND user_id = ?
                     ORDER BY bot_event_timestamp_utc DESC LIMIT 10");
                 $stmt_trades->execute([$config_id, $current_user_id]);
@@ -395,8 +395,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if (!$stmt->fetch()) throw new Exception("Invalid API Key selection or permission denied.");
                     
                     $pdo->beginTransaction();
-                    $insert_stmt = $pdo->prepare("INSERT INTO bot_configurations (user_id, user_api_key_id, name, symbol, kline_interval, margin_asset, default_leverage, order_check_interval_seconds, ai_update_interval_seconds, use_testnet, initial_margin_target_usdt, take_profit_target_usdt, pending_entry_order_cancel_timeout_seconds, profit_check_interval_seconds, is_active) VALUES (:user_id, :user_api_key_id, :name, :symbol, :kline_interval, :margin_asset, :default_leverage, :order_check_interval_seconds, :ai_update_interval_seconds, :use_testnet, :initial_margin_target_usdt, :take_profit_target_usdt, :pending_entry_order_cancel_timeout_seconds, :profit_check_interval_seconds, :is_active)");
-                    $insert_stmt->execute([':user_id' => $current_user_id, ':user_api_key_id' => $api_key_id, ':name' => $_POST['name'], ':symbol' => $_POST['symbol'], ':kline_interval' => $_POST['kline_interval'], ':margin_asset' => $_POST['margin_asset'], ':default_leverage' => (int)$_POST['default_leverage'], ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], ':is_active' => isset($_POST['is_active']) ? 1 : 0]);
+                    $insert_stmt = $pdo->prepare("
+                        INSERT INTO bot_configurations (user_id, user_api_key_id, name, symbol, kline_interval, margin_asset, default_leverage, order_check_interval_seconds, ai_update_interval_seconds, use_testnet, initial_margin_target_usdt, take_profit_target_usdt, pending_entry_order_cancel_timeout_seconds, profit_check_interval_seconds, is_active, quantity_determination_method, allow_ai_to_update_strategy) 
+                        VALUES (:user_id, :user_api_key_id, :name, :symbol, :kline_interval, :margin_asset, :default_leverage, :order_check_interval_seconds, :ai_update_interval_seconds, :use_testnet, :initial_margin_target_usdt, :take_profit_target_usdt, :pending_entry_order_cancel_timeout_seconds, :profit_check_interval_seconds, :is_active, :quantity_determination_method, :allow_ai_to_update_strategy)");
+                    $insert_stmt->execute([
+                        ':user_id' => $current_user_id,
+                        ':user_api_key_id' => $api_key_id,
+                        ':name' => $_POST['name'],
+                        ':symbol' => $_POST['symbol'],
+                        ':kline_interval' => $_POST['kline_interval'],
+                        ':margin_asset' => $_POST['margin_asset'],
+                        ':default_leverage' => (int)$_POST['default_leverage'],
+                        ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'],
+                        ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'],
+                        ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0,
+                        ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'],
+                        ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'],
+                        ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'],
+                        ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'],
+                        ':is_active' => isset($_POST['is_active']) ? 1 : 0,
+                        ':quantity_determination_method' => $_POST['quantity_determination_method'],
+                        ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0
+                    ]);
                     $new_config_id = $pdo->lastInsertId();
                     $pdo->prepare("INSERT INTO bot_runtime_status (bot_config_id, status) VALUES (?, 'stopped')")->execute([$new_config_id]);
                     $pdo->commit();
@@ -413,8 +433,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $stmt->execute([$config_id, $current_user_id]);
                         if (!$stmt->fetch()) throw new Exception("Configuration not found or permission denied.");
                         
-                        $update_stmt = $pdo->prepare("UPDATE bot_configurations SET name = :name, symbol = :symbol, kline_interval = :kline_interval, margin_asset = :margin_asset, default_leverage = :default_leverage, order_check_interval_seconds = :order_check_interval_seconds, ai_update_interval_seconds = :ai_update_interval_seconds, use_testnet = :use_testnet, initial_margin_target_usdt = :initial_margin_target_usdt, take_profit_target_usdt = :take_profit_target_usdt, pending_entry_order_cancel_timeout_seconds = :pending_entry_order_cancel_timeout_seconds, profit_check_interval_seconds = :profit_check_interval_seconds, is_active = :is_active WHERE id = :id AND user_id = :user_id");
-                        $update_stmt->execute([':name' => $_POST['name'], ':symbol' => $_POST['symbol'], ':kline_interval' => $_POST['kline_interval'], ':margin_asset' => $_POST['margin_asset'], ':default_leverage' => (int)$_POST['default_leverage'], ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], ':is_active' => isset($_POST['is_active']) ? 1 : 0, ':id' => $config_id, ':user_id' => $current_user_id]);
+                        $update_stmt = $pdo->prepare("
+                            UPDATE bot_configurations SET 
+                                name = :name, symbol = :symbol, kline_interval = :kline_interval, 
+                                margin_asset = :margin_asset, default_leverage = :default_leverage, 
+                                order_check_interval_seconds = :order_check_interval_seconds, 
+                                ai_update_interval_seconds = :ai_update_interval_seconds, use_testnet = :use_testnet, 
+                                initial_margin_target_usdt = :initial_margin_target_usdt, 
+                                take_profit_target_usdt = :take_profit_target_usdt, 
+                                pending_entry_order_cancel_timeout_seconds = :pending_entry_order_cancel_timeout_seconds, 
+                                profit_check_interval_seconds = :profit_check_interval_seconds, is_active = :is_active,
+                                quantity_determination_method = :quantity_determination_method,
+                                allow_ai_to_update_strategy = :allow_ai_to_update_strategy
+                            WHERE id = :id AND user_id = :user_id");
+                        $update_stmt->execute([
+                            ':name' => $_POST['name'], ':symbol' => $_POST['symbol'], 
+                            ':kline_interval' => $_POST['kline_interval'], 
+                            ':margin_asset' => $_POST['margin_asset'], 
+                            ':default_leverage' => (int)$_POST['default_leverage'], 
+                            ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], 
+                            ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], 
+                            ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, 
+                            ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], 
+                            ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], 
+                            ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], 
+                            ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], 
+                            ':is_active' => isset($_POST['is_active']) ? 1 : 0, 
+                            ':quantity_determination_method' => $_POST['quantity_determination_method'],
+                            ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0,
+                            ':id' => $config_id, ':user_id' => $current_user_id
+                        ]);
                         
                         $response = ['status' => 'success', 'message' => "Configuration '" . htmlspecialchars($_POST['name']) . "' updated successfully."];
                     } catch (Throwable $e) {
@@ -556,20 +604,25 @@ if (isset($_SESSION['user_id'])) {
                     <?php else: ?>
                     <form method="post" action="dashboard.php">
                         <input type="hidden" name="action" value="create_config">
-                        <div class="row">
-                            <div class="col-md-6 mb-3"><label class="form-label">Configuration Name</label><input type="text" class="form-control" name="name" value="" placeholder="e.g., My BTC Test Bot" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">API Key Set</label><select class="form-select" name="user_api_key_id" required><option value="" disabled selected>-- Select an API Key --</option><?php foreach ($user_api_keys as $key): ?><option value="<?= $key['id'] ?>"><?= htmlspecialchars($key['key_name']) ?></option><?php endforeach; ?></select></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="BTCUSDT" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Margin Asset</label><input type="text" class="form-control" name="margin_asset" value="USDT" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Kline Interval</label><input type="text" class="form-control" name="kline_interval" value="1m" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="100" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="60" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="45" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="60" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="60" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="1.50" required></div>
-                            <div class="col-md-6 mb-3"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="0.00" required></div>
-                            <div class="col-md-12 mb-3 d-flex"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" name="use_testnet" id="use_testnet" value="1" checked><label class="form-check-label" for="use_testnet">Use Testnet</label></div><div class="form-check form-switch ms-4"><input class="form-check-input" type="checkbox" role="switch" name="is_active" id="is_active" value="1" checked><label class="form-check-label" for="is_active">Enable Bot</label></div></div>
+                        <div class="row g-3">
+                            <div class="col-md-6"><label class="form-label">Configuration Name</label><input type="text" class="form-control" name="name" value="" placeholder="e.g., My BTC Test Bot" required></div>
+                            <div class="col-md-6"><label class="form-label">API Key Set</label><select class="form-select" name="user_api_key_id" required><option value="" disabled selected>-- Select an API Key --</option><?php foreach ($user_api_keys as $key): ?><option value="<?= $key['id'] ?>"><?= htmlspecialchars($key['key_name']) ?></option><?php endforeach; ?></select></div>
+                            <div class="col-md-4"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="BTCUSDT" required></div>
+                            <div class="col-md-4"><label class="form-label">Margin Asset</label><input type="text" class="form-control" name="margin_asset" value="USDT" required></div>
+                            <div class="col-md-4"><label class="form-label">Kline Interval</label><input type="text" class="form-control" name="kline_interval" value="1m" required></div>
+                            <div class="col-md-4"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="100" required></div>
+                            <div class="col-md-4"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="60" required></div>
+                            <div class="col-md-4"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="45" required></div>
+                            <div class="col-md-4"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="60" required></div>
+                            <div class="col-md-4"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="60" required></div>
+                            <div class="col-md-4"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="1.50" required></div>
+                            <div class="col-md-6"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="0.00" required></div>
+                            <div class="col-md-6"><label class="form-label">Quantity Calculation Method</label><select class="form-select" name="quantity_determination_method"><option value="INITIAL_MARGIN_TARGET" selected>Fixed (Initial Margin Target)</option><option value="AI_SUGGESTED">Dynamic (AI Suggested)</option></select></div>
+                            <div class="col-md-12 pt-3">
+                                <div class="form-check form-switch d-inline-block me-4"><input class="form-check-input" type="checkbox" role="switch" name="use_testnet" id="use_testnet" value="1" checked><label class="form-check-label" for="use_testnet">Use Testnet</label></div>
+                                <div class="form-check form-switch d-inline-block me-4"><input class="form-check-input" type="checkbox" role="switch" name="is_active" id="is_active" value="1" checked><label class="form-check-label" for="is_active">Enable Bot</label></div>
+                                <div class="form-check form-switch d-inline-block"><input class="form-check-input" type="checkbox" role="switch" name="allow_ai_to_update_strategy" id="allow_ai_to_update_strategy" value="1"><label class="form-check-label" for="allow_ai_to_update_strategy">Allow AI to Update Strategy</label></div>
+                            </div>
                         </div><hr><button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Create Configuration</button><a href="dashboard.php" class="btn btn-secondary">Cancel</a>
                     </form>
                     <?php endif; ?>
@@ -635,7 +688,7 @@ if (isset($_SESSION['user_id'])) {
                             <div class="card-header"><h5 class="mb-0"><i class="bi bi-table"></i> Recent Trades</h5></div>
                             <div class="table-responsive">
                                 <table class="table table-striped table-hover mb-0">
-                                    <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Type</th><th>Timestamp</th><th>P/L (USDT)</th></tr></thead>
+                                    <thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>P/L (USDT)</th><th>Timestamp</th><th>Info</th></tr></thead>
                                     <tbody id="recent-trades-body">
                                         <tr><td colspan="7" class="text-center p-4"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</td></tr>
                                     </tbody>
@@ -657,7 +710,7 @@ if (isset($_SESSION['user_id'])) {
                         <div class="card shadow-sm">
                             <div class="card-header"><h5 class="mb-0"><i class="bi bi-sliders"></i> Bot Configuration</h5></div>
                             <div class="card-body">
-                                <form id="update-config-form" method="post" action="dashboard.php?action=update_config">
+                                <form id="update-config-form" method="post" action="dashboard.php?api=true&action=update_config">
                                     <input type="hidden" name="config_id" value="<?= $config_data['id'] ?>">
                                     <div class="mb-3"><label class="form-label">Config Name</label><input type="text" class="form-control" name="name" value="<?= htmlspecialchars($config_data['name'] ?? '') ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="<?= htmlspecialchars($config_data['symbol'] ?? 'BTCUSDT') ?>" required></div>
@@ -670,10 +723,16 @@ if (isset($_SESSION['user_id'])) {
                                     <div class="mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="<?= $config_data['profit_check_interval_seconds'] ?? 60 ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['initial_margin_target_usdt'], 8), '0'), '.') ?>" required></div>
                                     <div class="mb-3"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['take_profit_target_usdt'], 8), '0'), '.') ?>" required></div>
-                                    
+                                    <div class="mb-3"><label class="form-label">Quantity Calculation Method</label>
+                                        <select class="form-select" name="quantity_determination_method">
+                                            <option value="INITIAL_MARGIN_TARGET" <?= ($config_data['quantity_determination_method'] ?? '') === 'INITIAL_MARGIN_TARGET' ? 'selected' : '' ?>>Fixed (Initial Margin Target)</option>
+                                            <option value="AI_SUGGESTED" <?= ($config_data['quantity_determination_method'] ?? '') === 'AI_SUGGESTED' ? 'selected' : '' ?>>Dynamic (AI Suggested)</option>
+                                        </select>
+                                    </div>
                                     <div class="mb-3 d-flex flex-column">
                                         <div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" name="use_testnet" id="use_testnet_edit" value="1" <?= !empty($config_data['use_testnet']) ? 'checked' : '' ?>><label class="form-check-label" for="use_testnet_edit">Use Testnet</label></div>
                                         <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" role="switch" name="is_active" id="is_active_edit" value="1" <?= !empty($config_data['is_active']) ? 'checked' : '' ?>><label class="form-check-label" for="is_active_edit">Enable Bot</label></div>
+                                        <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" role="switch" name="allow_ai_to_update_strategy" id="allow_ai_update_edit" value="1" <?= !empty($config_data['allow_ai_to_update_strategy']) ? 'checked' : '' ?>><label class="form-check-label" for="allow_ai_update_edit">Allow AI to Update Strategy</label></div>
                                     </div>
                                     
                                     <hr>
@@ -890,18 +949,18 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 data.recentTrades.forEach(trade => {
                     const netPnl = trade.realized_pnl_usdt === null ? null : parseFloat(trade.realized_pnl_usdt) - parseFloat(trade.commission_usdt);
-                    const pnlText = netPnl === null ? '$0.00' : '$' + netPnl.toFixed(2);
+                    const pnlText = netPnl === null ? 'N/A' : '$' + netPnl.toFixed(4);
                     const pnlClass = netPnl === null ? '' : (netPnl >= 0 ? 'text-success' : 'text-danger');
-                    const tradeType = trade.reduceOnly ? 'Reduce Only' : 'Normal'; // Determine trade type
+                    const tradeInfo = trade.reduce_only ? '<span class="badge bg-info">Reduce</span>' : '<span class="badge bg-secondary">Entry</span>';
                     tradesHtml += `
                         <tr>
                             <td>${trade.symbol}</td>
                             <td><span class="fw-bold text-${trade.side == 'BUY' ? 'success' : 'danger'}">${trade.side}</span></td>
                             <td>${parseFloat(trade.quantity_involved).toString()}</td>
                             <td>$${parseFloat(trade.price_point).toFixed(2)}</td>
-                            <td>${tradeType}</td>
-                            <td>${new Date(trade.bot_event_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</td>
                             <td class="fw-bold ${pnlClass}">${pnlText}</td>
+                            <td>${new Date(trade.bot_event_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</td>
+                            <td>${tradeInfo}</td>
                         </tr>`;
                 });
             }

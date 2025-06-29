@@ -82,6 +82,9 @@ class AiTradingBotFutures
     private string $primaryHistoricalKlineIntervalAI;
     private float $takeProfitTargetUsdt;
     private int $profitCheckIntervalSeconds;
+    // --- NEW: Separated configuration parameters ---
+    private string $quantityDeterminationMethod;
+    private bool $allowAiToUpdateStrategy;
 
     // --- User-Specific API Keys (Loaded securely from DB) ---
     private string $binanceApiKey;
@@ -427,6 +430,9 @@ class AiTradingBotFutures
         if (empty($config['symbol']) || empty($config['kline_interval']) || empty($config['margin_asset'])) {
             throw new \InvalidArgumentException("Symbol, kline_interval, and margin_asset must not be empty.");
         }
+        if (!in_array($config['quantity_determination_method'], ['INITIAL_MARGIN_TARGET', 'AI_SUGGESTED'])) {
+            throw new \InvalidArgumentException("Invalid quantity_determination_method configured.");
+        }
         $this->logger->debug("Bot configuration validated successfully.");
     }
 
@@ -495,6 +501,10 @@ class AiTradingBotFutures
         $this->historicalKlineIntervalsAIArray = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'];
         $this->primaryHistoricalKlineIntervalAI = '5m';
 
+        // Load separated bot-level parameters
+        $this->quantityDeterminationMethod = $config['quantity_determination_method'];
+        $this->allowAiToUpdateStrategy = (bool)$config['allow_ai_to_update_strategy'];
+
         $this->logger->info("Bot configuration loaded successfully from DB.", ['config_name' => $config['name']]);
     }
 
@@ -540,19 +550,18 @@ class AiTradingBotFutures
      */
     private function getDefaultStrategyDirectives(): array
     {
+        // NOTE: allow_ai_to_update_self and quantity_determination_method are no longer part of this.
         return [
             'schema_version' => '1.0.0', 'strategy_type' => 'GENERAL_TRADING', 'current_market_bias' => 'NEUTRAL',
             'User prompt' => [],
             'preferred_timeframes_for_entry' => ['3m', '5m', '15m'],
             'key_sr_levels_to_watch' => ['support' => [], 'resistance' => []],
             'risk_parameters' => ['target_risk_per_trade_usdt' => 0.5, 'default_rr_ratio' => 3, 'max_concurrent_positions' => 1],
-            'quantity_determination_method' => 'INITIAL_MARGIN_TARGET',
             'entry_conditions_keywords' => ['momentum_confirm', 'breakout_consolidation'],
             'exit_conditions_keywords' => ['momentum_stall', 'target_profit_achieved'],
             'leverage_preference' => ['min' => 100, 'max' => 100, 'preferred' => 100],
             'ai_confidence_threshold_for_trade' => 0.7,
             'ai_learnings_notes' => 'Initial default strategy directives. AI to adapt based on market and trade outcomes.',
-            'allow_ai_to_update_self' => false,
             'emergency_hold_justification' => 'Wait for clear market signal or manual intervention.'
         ];
     }
@@ -584,7 +593,14 @@ class AiTradingBotFutures
             if ($source) {
                 $this->currentActiveTradeLogicSource = $source;
                 $decodedDirectives = json_decode((string)$source['strategy_directives_json'], true);
-                $this->currentActiveTradeLogicSource['strategy_directives'] = (json_last_error() === JSON_ERROR_NONE) ? $decodedDirectives : $this->getDefaultStrategyDirectives();
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    // Sanitize the loaded directives just in case old values still exist in DB
+                    unset($decodedDirectives['quantity_determination_method']);
+                    unset($decodedDirectives['allow_ai_to_update_self']);
+                    $this->currentActiveTradeLogicSource['strategy_directives'] = $decodedDirectives;
+                } else {
+                    $this->currentActiveTradeLogicSource['strategy_directives'] = $this->getDefaultStrategyDirectives();
+                }
             } else {
                 $defaultDirectives = $this->getDefaultStrategyDirectives();
                 $insertSql = "INSERT INTO trade_logic_source (user_id, source_name, is_active, version, last_updated_by, last_updated_at_utc, strategy_directives_json)
@@ -609,8 +625,14 @@ class AiTradingBotFutures
     private function updateTradeLogicSourceInDb(array $updatedDirectives, string $reasonForUpdate, ?array $currentFullDataForAI): bool
     {
         if (!$this->pdo || !$this->currentActiveTradeLogicSource || !isset($this->currentActiveTradeLogicSource['id']) || $this->currentActiveTradeLogicSource['id'] === 0) {
+            $this->logger->warning("Cannot update trade logic source: no valid source loaded or DB not connected.");
             return false;
         }
+
+        // Sanitize the directives to prevent re-injection of separated bot-level parameters
+        unset($updatedDirectives['quantity_determination_method']);
+        unset($updatedDirectives['allow_ai_to_update_self']);
+        unset($updatedDirectives['allow_ai_to_update_strategy']); // Also remove the new name just in case
 
         $sourceIdToUpdate = (int)$this->currentActiveTradeLogicSource['id'];
         $newVersion = (int)$this->currentActiveTradeLogicSource['version'] + 1;
@@ -631,9 +653,11 @@ class AiTradingBotFutures
                 ':snapshot' => $currentFullDataForAI ? json_encode($currentFullDataForAI, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_IGNORE) : null,
                 ':id' => $sourceIdToUpdate, ':user_id' => $this->userId
             ]);
-            $this->loadActiveTradeLogicSource();
+            $this->logger->info("Successfully updated trade logic source in DB to version {$newVersion}.");
+            $this->loadActiveTradeLogicSource(); // Reload the updated source
             return true;
         } catch (\PDOException $e) {
+            $this->logger->error("Failed to update trade logic source in DB.", ['err' => $e->getMessage()]);
             return false;
         }
     }
@@ -1383,7 +1407,12 @@ class AiTradingBotFutures
                     'recent_ai_interactions' => $this->getRecentAIInteractionsFromDb(self::MAX_AI_INTERACTIONS_FOR_AI_CONTEXT)
                 ],
                 'current_guiding_trade_logic_source' => json_decode($this->currentActiveTradeLogicSource['strategy_directives_json'] ?? 'null', true),
-                'bot_configuration_summary_for_ai' => ['initialMarginTargetUsdt' => $this->initialMarginTargetUsdt, 'defaultLeverage' => $this->defaultLeverage]
+                'bot_configuration_summary_for_ai' => [
+                    'initialMarginTargetUsdt' => $this->initialMarginTargetUsdt, 
+                    'defaultLeverage' => $this->defaultLeverage,
+                    'quantity_determination_method' => $this->quantityDeterminationMethod,
+                    'allow_ai_to_update_strategy' => $this->allowAiToUpdateStrategy
+                ]
             ];
         });
     }
@@ -1395,10 +1424,9 @@ class AiTradingBotFutures
      */
     private function constructAIPrompt(array $fullDataForAI): string
     {
-        // 1. Determine the bot's operational mode from the strategy directives.
-        $strategyDirectives = $fullDataForAI['current_guiding_trade_logic_source']['strategy_directives'] ?? [];
-        $quantityMethod = $strategyDirectives['quantity_determination_method'] ?? 'AI_SUGGESTED';
-        $allowSelfUpdate = $strategyDirectives['allow_ai_to_update_self'] ?? false;
+        // 1. Determine the bot's operational mode from its fixed configuration.
+        $quantityMethod = $this->quantityDeterminationMethod;
+        $allowSelfUpdate = $this->allowAiToUpdateStrategy;
 
         // 2. Build the prompt from modular, unbiased blocks.
         $promptParts = [];
@@ -1431,74 +1459,20 @@ PROMPT;
     - `stopLossPrice`: (float, respecting precision)
     - `takeProfitPrice`: (float, respecting precision)
     - `rationale`: (string, brief justification)
-    **Example:**
-    ```json
-    {
-      "action": "OPEN_POSITION",
-      "leverage": 10,
-      "side": "BUY",
-      "entryPrice": 29000.0,
-      "quantity": 0.001,
-      "stopLossPrice": 28500.0,
-      "takeProfitPrice": 29500.0,
-      "rationale": "Price action indicates strong bullish momentum after retesting support."
-    }
-    ```
 
 2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "CLOSE_POSITION",
-      "rationale": "Reached take profit target and market shows signs of reversal."
-    }
-    ```
 
 3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
-    }
-    ```
 
 **OPTIONAL STRATEGY UPDATE:**
 If your analysis indicates the `current_guiding_trade_logic_source` is flawed, you MAY add the `suggested_strategy_directives_update` key to your response. This does NOT replace the main `action`.
 - `suggested_strategy_directives_update`:
     - `reason_for_update`: (string)
     - `updated_directives`: A complete JSON object for the new `strategy_directives`.
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "No immediate trade, but strategy needs refinement.",
-      "suggested_strategy_directives_update": {
-        "reason_for_update": "Adjusting risk parameters based on recent volatility.",
-        "updated_directives": {
-          "schema_version": "1.0.0",
-          "strategy_type": "GENERAL_TRADING",
-          "current_market_bias": "NEUTRAL",
-          "User prompt": [],
-          "preferred_timeframes_for_entry": ["1m", "5m", "15m"],
-          "key_sr_levels_to_watch": {"support": [], "resistance": []},
-          "risk_parameters": {"target_risk_per_trade_usdt": 0.75, "default_rr_ratio": 2.5, "max_concurrent_positions": 1},
-          "quantity_determination_method": "AI_SUGGESTED",
-          "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"],
-          "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"],
-          "leverage_preference": {"min": 5, "max": 10, "preferred": 10},
-          "ai_confidence_threshold_for_trade": 0.7,
-          "ai_learnings_notes": "Adjusted risk per trade and R:R ratio.",
-          "allow_ai_to_update_self": true,
-          "emergency_hold_justification": "Wait for clear market signal or manual intervention."
-        }
-      }
-    }
-    ```
 PROMPT;
         }
         // --- SCENARIO 2: AI Suggests Quantity, but Strategy is Fixed ---
@@ -1517,41 +1491,14 @@ PROMPT;
     - `stopLossPrice`: (float, respecting precision)
     - `takeProfitPrice`: (float, respecting precision)
     - `rationale`: (string, brief justification)
-    **Example:**
-    ```json
-    {
-      "action": "OPEN_POSITION",
-      "leverage": 10,
-      "side": "BUY",
-      "entryPrice": 29000.0,
-      "quantity": 0.001,
-      "stopLossPrice": 28500.0,
-      "takeProfitPrice": 29500.0,
-      "rationale": "Price action indicates strong bullish momentum after retesting support."
-    }
-    ```
 
 2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "CLOSE_POSITION",
-      "rationale": "Reached take profit target and market shows signs of reversal."
-    }
-    ```
 
 3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
-    }
-    ```
 
 **RESTRICTION:** You are forbidden from suggesting strategy updates.
 PROMPT;
@@ -1572,74 +1519,20 @@ PROMPT;
     - `stopLossPrice`: (float, respecting precision)
     - `takeProfitPrice`: (float, respecting precision)
     - `rationale`: (string, brief justification)
-    **Example:**
-    ```json
-    {
-      "action": "OPEN_POSITION",
-      "leverage": 10,
-      "side": "BUY",
-      "entryPrice": 29000.0,
-      "quantity": 0.001,
-      "stopLossPrice": 28500.0,
-      "takeProfitPrice": 29500.0,
-      "rationale": "Price action indicates strong bullish momentum after retesting support."
-    }
-    ```
 
 2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "CLOSE_POSITION",
-      "rationale": "Reached take profit target and market shows signs of reversal."
-    }
-    ```
 
 3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
-    }
-    ```
 
 **OPTIONAL STRATEGY UPDATE:**
 If your analysis indicates the `current_guiding_trade_logic_source` is flawed, you MAY add the `suggested_strategy_directives_update` key to your response. This does NOT replace the main `action`.
 - `suggested_strategy_directives_update`:
     - `reason_for_update`: (string)
     - `updated_directives`: A complete JSON object for the new `strategy_directives`.
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "No immediate trade, but strategy needs refinement.",
-      "suggested_strategy_directives_update": {
-        "reason_for_update": "Adjusting risk parameters based on recent volatility.",
-        "updated_directives": {
-          "schema_version": "1.0.0",
-          "strategy_type": "GENERAL_TRADING",
-          "current_market_bias": "NEUTRAL",
-          "User prompt": [],
-          "preferred_timeframes_for_entry": ["1m", "5m", "15m"],
-          "key_sr_levels_to_watch": {"support": [], "resistance": []},
-          "risk_parameters": {"target_risk_per_trade_usdt": 0.75, "default_rr_ratio": 2.5, "max_concurrent_positions": 1},
-          "quantity_determination_method": "INITIAL_MARGIN_TARGET",
-          "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"],
-          "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"],
-          "leverage_preference": {"min": 5, "max": 10, "preferred": 10},
-          "ai_confidence_threshold_for_trade": 0.7,
-          "ai_learnings_notes": "Adjusted risk per trade and R:R ratio.",
-          "allow_ai_to_update_self": true,
-          "emergency_hold_justification": "Wait for clear market signal or manual intervention."
-        }
-      }
-    }
-    ```
 PROMPT;
         }
         // --- SCENARIO 4: Most Constrained (Fixed Quantity, Fixed Strategy) ---
@@ -1658,41 +1551,14 @@ PROMPT;
     - `stopLossPrice`: (float, respecting precision)
     - `takeProfitPrice`: (float, respecting precision)
     - `rationale`: (string, brief justification)
-    **Example:**
-    ```json
-    {
-      "action": "OPEN_POSITION",
-      "leverage": 10,
-      "side": "BUY",
-      "entryPrice": 29000.0,
-      "quantity": 0.001,
-      "stopLossPrice": 28500.0,
-      "takeProfitPrice": 29500.0,
-      "rationale": "Price action indicates strong bullish momentum after retesting support."
-    }
-    ```
 
 2.  **CLOSE_POSITION**: Close the existing position at market price.
     - `action`: "CLOSE_POSITION"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "CLOSE_POSITION",
-      "rationale": "Reached take profit target and market shows signs of reversal."
-    }
-    ```
 
 3.  **HOLD_POSITION / DO_NOTHING**: Maintain the current state.
     - `action`: "HOLD_POSITION" or "DO_NOTHING"
     - `rationale`: (string)
-    **Example:**
-    ```json
-    {
-      "action": "HOLD_POSITION",
-      "rationale": "Current position is healthy, and no new clear signals for entry or exit."
-    }
-    ```
 
 **RESTRICTION:** You are forbidden from suggesting strategy updates.
 PROMPT;
@@ -1756,6 +1622,20 @@ PROMPT;
             if (json_last_error() !== JSON_ERROR_NONE) {
                 throw new \InvalidArgumentException("Failed to decode JSON from AI text: " . json_last_error_msg());
             }
+
+            // Handle potential strategy update suggestion from AI before executing the trade action
+            if ($this->allowAiToUpdateStrategy && isset($aiDecisionParams['suggested_strategy_directives_update'])) {
+                $updatePayload = $aiDecisionParams['suggested_strategy_directives_update'];
+                if (isset($updatePayload['updated_directives']) && is_array($updatePayload['updated_directives'])) {
+                    $this->logger->info("AI suggested a strategy update.", ['reason' => $updatePayload['reason_for_update'] ?? 'N/A']);
+                    $this->updateTradeLogicSourceInDb(
+                        $updatePayload['updated_directives'],
+                        $updatePayload['reason_for_update'] ?? 'AI initiated update.',
+                        $this->currentDataForAIForDBLog // Full context
+                    );
+                }
+            }
+
             $this->executeAIDecision($aiDecisionParams);
         } catch (\Throwable $e) {
             $this->logger->error('Error processing AI response.', ['exception' => $e->getMessage()]);
@@ -1851,9 +1731,8 @@ PROMPT;
         $this->aiSuggestedTpPrice = (float)($params['takeProfitPrice'] ?? 0);
         $this->aiSuggestedLeverage = (int)($params['leverage'] ?? 0);
 
-        // Get the configured quantity determination method
-        $strategyDirectives = $this->currentActiveTradeLogicSource['strategy_directives'] ?? [];
-        $quantityMethod = $strategyDirectives['quantity_determination_method'] ?? 'AI_SUGGESTED';
+        // Get the configured quantity determination method from the bot's configuration
+        $quantityMethod = $this->quantityDeterminationMethod;
 
         if ($quantityMethod === 'INITIAL_MARGIN_TARGET') {
             $this->logger->debug("Calculating quantity based on INITIAL_MARGIN_TARGET.", ['target_usdt' => $this->initialMarginTargetUsdt]);

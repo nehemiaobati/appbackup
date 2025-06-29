@@ -1,6 +1,7 @@
 -- P2Profit - User-Based Trading Bot Database Schema
--- Version: 2.0
+-- Version: 2.1
 -- A production-ready, relational schema for a multi-user trading bot system.
+-- Separates bot operational parameters from AI strategy directives.
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
@@ -16,18 +17,8 @@ SET time_zone = "+00:00";
 
 --
 -- Table: `ai_interactions_log`
--- Description: Logs all interactions and decisions made by the AI for each bot configuration.
--- Key Columns:
---   - `id`: Unique identifier for each AI interaction log entry.
---   - `user_id`: Links to the user who owns the bot.
---   - `bot_config_id`: Links to the specific bot configuration.
---   - `log_timestamp_utc`: Timestamp of the AI interaction.
---   - `trading_symbol`: The trading pair the AI interacted with.
---   - `executed_action_by_bot`: The action taken by the bot based on AI's decision.
---   - `ai_decision_params_json`: JSON blob of parameters used in AI's decision.
---   - `raw_ai_response_json`: Raw JSON response from the AI.
 --
-CREATE TABLE `ai_interactions_log` (
+CREATE TABLE IF NOT EXISTS `ai_interactions_log` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `bot_config_id` int(11) NOT NULL,
@@ -46,16 +37,8 @@ CREATE TABLE `ai_interactions_log` (
 
 --
 -- Table: `bot_configurations`
--- Description: Stores the configuration settings for each trading bot created by users.
--- Key Columns:
---   - `id`: Unique identifier for each bot configuration.
---   - `user_id`: Links to the user who owns this configuration.
---   - `user_api_key_id`: Links to the API keys used by this bot.
---   - `name`: User-defined name for the bot.
---   - `symbol`: The primary trading symbol (e.g., BTCUSDT).
---   - `is_active`: Indicates if the bot configuration is currently active.
 --
-CREATE TABLE `bot_configurations` (
+CREATE TABLE IF NOT EXISTS `bot_configurations` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `user_api_key_id` int(11) NOT NULL,
@@ -67,6 +50,8 @@ CREATE TABLE `bot_configurations` (
   `order_check_interval_seconds` int(11) NOT NULL DEFAULT 45,
   `ai_update_interval_seconds` int(11) NOT NULL DEFAULT 60,
   `use_testnet` tinyint(1) NOT NULL DEFAULT 1 COMMENT '1 for testnet, 0 for mainnet',
+  `quantity_determination_method` varchar(50) NOT NULL DEFAULT 'INITIAL_MARGIN_TARGET' COMMENT 'How trade quantity is calculated (e.g., INITIAL_MARGIN_TARGET, AI_SUGGESTED)',
+  `allow_ai_to_update_strategy` tinyint(1) NOT NULL DEFAULT 0 COMMENT '1 if AI is allowed to update its own strategy directives',
   `initial_margin_target_usdt` decimal(20,8) NOT NULL DEFAULT 10.50000000,
   `take_profit_target_usdt` decimal(20,8) NOT NULL DEFAULT 0.00000000,
   `pending_entry_order_cancel_timeout_seconds` int(11) NOT NULL DEFAULT 180,
@@ -79,16 +64,8 @@ CREATE TABLE `bot_configurations` (
 
 --
 -- Table: `bot_runtime_status`
--- Description: Stores the current runtime status and operational details of each bot.
--- Key Columns:
---   - `id`: Unique identifier for the runtime status entry.
---   - `bot_config_id`: Links to the bot configuration this status belongs to.
---   - `status`: Current operational status of the bot (e.g., 'running', 'stopped', 'error').
---   - `last_heartbeat`: Timestamp of the last known activity from the bot process.
---   - `error_message`: Details of any errors encountered by the bot.
---   - `current_position_details_json`: JSON blob of current open positions.
 --
-CREATE TABLE `bot_runtime_status` (
+CREATE TABLE IF NOT EXISTS `bot_runtime_status` (
   `id` int(11) NOT NULL,
   `bot_config_id` int(11) NOT NULL,
   `status` varchar(50) NOT NULL COMMENT 'Current operational status (e.g., running, stopped, error)',
@@ -103,18 +80,8 @@ CREATE TABLE `bot_runtime_status` (
 
 --
 -- Table: `orders_log`
--- Description: Records all trading orders executed or attempted by the bots.
--- Key Columns:
---   - `internal_id`: Unique internal identifier for each order log entry.
---   - `user_id`: Links to the user who initiated the order.
---   - `bot_config_id`: Links to the bot configuration that placed the order.
---   - `order_id_binance`: The order ID provided by the exchange (e.g., Binance).
---   - `symbol`: The trading pair of the order.
---   - `side`: The order side (e.g., 'BUY', 'SELL').
---   - `status_reason`: The status or reason for the order entry.
---   - `realized_pnl_usdt`: Profit/Loss in USDT for closed orders.
 --
-CREATE TABLE `orders_log` (
+CREATE TABLE IF NOT EXISTS `orders_log` (
   `internal_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `bot_config_id` int(11) NOT NULL,
@@ -137,15 +104,8 @@ CREATE TABLE `orders_log` (
 
 --
 -- Table: `trade_logic_source`
--- Description: Stores different AI trading strategies or logic sources that bots can use.
--- Key Columns:
---   - `id`: Unique identifier for each trade logic source.
---   - `user_id`: Links to the user who created/owns this logic.
---   - `source_name`: A descriptive name for the trading logic.
---   - `is_active`: Indicates if this logic source is currently active and usable.
---   - `strategy_directives_json`: JSON blob containing the detailed strategy directives for the AI.
 --
-CREATE TABLE `trade_logic_source` (
+CREATE TABLE IF NOT EXISTS `trade_logic_source` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `source_name` varchar(100) NOT NULL,
@@ -162,15 +122,8 @@ CREATE TABLE `trade_logic_source` (
 
 --
 -- Table: `users`
--- Description: Stores user account information for the trading bot platform.
--- Key Columns:
---   - `id`: Unique identifier for each user.
---   - `username`: Unique username for login.
---   - `password_hash`: Hashed password for security.
---   - `email`: User's email address.
---   - `role`: User's role (e.g., 'admin', 'user').
 --
-CREATE TABLE `users` (
+CREATE TABLE IF NOT EXISTS `users` (
   `id` int(11) NOT NULL,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) NOT NULL,
@@ -184,17 +137,8 @@ CREATE TABLE `users` (
 
 --
 -- Table: `user_api_keys`
--- Description: Stores encrypted API keys for various exchanges (e.g., Binance, Gemini) for each user.
--- Key Columns:
---   - `id`: Unique identifier for each API key entry.
---   - `user_id`: Links to the user who owns these API keys.
---   - `key_name`: A user-friendly name for the API key set.
---   - `binance_api_key_encrypted`: Encrypted Binance API key.
---   - `binance_api_secret_encrypted`: Encrypted Binance API secret.
---   - `gemini_api_key_encrypted`: Encrypted Gemini API key.
---   - `is_active`: Indicates if the API key set is currently active.
 --
-CREATE TABLE `user_api_keys` (
+CREATE TABLE IF NOT EXISTS `user_api_keys` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `key_name` varchar(100) NOT NULL COMMENT 'e.g., "My Main Binance Key", "Testnet Key"',
@@ -368,22 +312,22 @@ INSERT IGNORE INTO `users` (`id`, `username`, `password_hash`, `email`, `role`) 
 (1, 'testuser', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/lK.', 'test@example.com', 'user');
 
 -- Insert sample (dummy) encrypted API keys for the test user.
--- IN A REAL SCENARIO, a dashboard would handle the encryption and insertion.
--- These values are just placeholders and will not decrypt without the correct APP_ENCRYPTION_KEY.
 INSERT IGNORE INTO `user_api_keys` (`id`, `user_id`, `key_name`, `binance_api_key_encrypted`, `binance_api_secret_encrypted`, `gemini_api_key_encrypted`, `is_active`) VALUES
 (1, 1, 'My Default Keys', 'U2FsdGVkX1+vGvG6t8Rj0b0v9kZ/n8Nn7hUa3wQpY4s=', 'U2FsdGVkX1/aBcDeFgHiJkLmNoPqRsTuVwXyZ1a2b3c=', 'U2FsdGVkX1/sOmIsTrUeWgHjIkLmNoPqRsTuVwXyZ1a2b3c=', 1);
 
 -- Insert a default bot configuration for the test user, linking to their API keys.
-INSERT IGNORE INTO `bot_configurations` (`id`, `user_id`, `user_api_key_id`, `name`, `symbol`, `is_active`) VALUES
-(1, 1, 1, 'Default Testnet Bot', 'BTCUSDT', 1);
+-- Note the new columns: `quantity_determination_method` and `allow_ai_to_update_strategy`.
+INSERT IGNORE INTO `bot_configurations` (`id`, `user_id`, `user_api_key_id`, `name`, `symbol`, `is_active`, `quantity_determination_method`, `allow_ai_to_update_strategy`) VALUES
+(1, 1, 1, 'Default Testnet Bot', 'BTCUSDT', 1, 'INITIAL_MARGIN_TARGET', 0);
 
 -- Insert a default runtime status for the default bot config
 INSERT IGNORE INTO `bot_runtime_status` (`id`, `bot_config_id`, `status`) VALUES
 (1, 1, 'stopped');
 
--- Insert a default trade logic source for the test user
+-- Insert a default trade logic source for the test user.
+-- Note that `quantity_determination_method` and `allow_ai_to_update_self` have been REMOVED from the JSON.
 INSERT IGNORE INTO `trade_logic_source` (`id`, `user_id`, `source_name`, `is_active`, `version`, `strategy_directives_json`) VALUES
-(1, 1, 'Default AI Strategy', TRUE, 1, '{"schema_version": "1.0.0", "strategy_type": "GENERAL_TRADING", "current_market_bias": "NEUTRAL", "preferred_timeframes_for_entry": ["1m", "5m", "15m"], "key_sr_levels_to_watch": {"support": [], "resistance": []}, "risk_parameters": {"target_risk_per_trade_usdt": 0.5, "default_rr_ratio": 3, "max_concurrent_positions": 1}, "quantity_determination_method": "INITIAL_MARGIN_TARGET", "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"], "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"], "leverage_preference": {"min": 5, "max": 10, "preferred": 10}, "ai_confidence_threshold_for_trade": 0.7, "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.", "allow_ai_to_update_self": true, "emergency_hold_justification": "Wait for clear market signal or manual intervention."}');
+(1, 1, 'Default AI Strategy', TRUE, 1, '{"schema_version": "1.0.0", "strategy_type": "GENERAL_TRADING", "current_market_bias": "NEUTRAL", "preferred_timeframes_for_entry": ["1m", "5m", "15m"], "key_sr_levels_to_watch": {"support": [], "resistance": []}, "risk_parameters": {"target_risk_per_trade_usdt": 0.5, "default_rr_ratio": 3, "max_concurrent_positions": 1}, "entry_conditions_keywords": ["momentum_confirm", "breakout_consolidation"], "exit_conditions_keywords": ["momentum_stall", "target_profit_achieved"], "leverage_preference": {"min": 5, "max": 10, "preferred": 10}, "ai_confidence_threshold_for_trade": 0.7, "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.", "emergency_hold_justification": "Wait for clear market signal or manual intervention."}');
 
 
 COMMIT;
