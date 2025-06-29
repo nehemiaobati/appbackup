@@ -30,7 +30,7 @@ Architecture Overview
 
 The bot's architecture is designed for high performance and reliability, built with PHP and leveraging asynchronous programming. The core AiTradingBotFutures class acts as a stateful orchestrator, managing all logic, API interactions, and AI decision-making through a well-defined lifecycle.
 
-Generated mermaid
+```mermaid
 graph TD
     A[User] --> B(Bot Configuration DB);
     A --> C(User API Keys DB);
@@ -60,6 +60,7 @@ graph TD
         D --> Q[Monolog];
         D --> R[phpdotenv];
     end
+```
 
 
 Core Component: The AiTradingBotFutures PHP class is the central orchestrator. It has been refactored to be a stateful controller, delegating tasks and managing the bot's lifecycle.
@@ -259,21 +260,16 @@ Setup Steps
 
 Clone the Repository & Install Dependencies:
 
-Generated bash
+```bash
 git clone <repository_url>
 cd <repository_name>
 composer install
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 
 Environment Configuration (.env file):
 Create a .env file in the root directory.
 
-Generated dotenv
+```dotenv
 # Database Configuration
 DB_HOST=127.0.0.1
 DB_PORT=3306
@@ -286,27 +282,17 @@ APP_ENCRYPTION_KEY=YOUR_VERY_STRONG_32_CHARACTER_RANDOM_KEY_HERE
 
 # Gemini AI Configuration
 GEMINI_MODEL_NAME=gemini-pro
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Dotenv
-IGNORE_WHEN_COPYING_END
+```
 
 Security: The APP_ENCRYPTION_KEY is critical. Generate a strong, random key and keep it secret.
 
 Database Setup:
 Import the provided SQL schemas into your database.
 
-Generated bash
+```bash
 mysql -u your_db_user -p your_db_name < schema.sql
 mysql -u your_db_user -p your_db_name < setupdb.sql
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 
 The `setupdb.sql` file creates a default user and bot configuration. You will need to use the `dashboard.php` interface to add your own securely encrypted API keys and manage bot configurations.
 
@@ -378,51 +364,31 @@ The `bot_manager.sh` script is the recommended way to manage bot processes.
 
 Make the script executable (one time):
 
-Generated bash
+```bash
 chmod +x bot_manager.sh
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 
 Start a bot:
 Find the config_id from the dashboard.
 
-Generated bash
+```bash
 ./bot_manager.sh start <config_id>
 # Example: ./bot_manager.sh start 1
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 
 Stop a bot:
 
-Generated bash
+```bash
 ./bot_manager.sh stop <config_id>
 # Example: ./bot_manager.sh stop 1
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 
 Check logs:
 The script will tell you the log file path.
 
-Generated bash
+```bash
 tail -f logs/1.log
-IGNORE_WHEN_COPYING_START
-content_copy
-download
-Use code with caution. 
-Bash
-IGNORE_WHEN_COPYING_END
+```
 Troubleshooting
 
 API Key Decryption Failed: Your APP_ENCRYPTION_KEY in .env does not match the key used when you saved your API keys in the dashboard.
