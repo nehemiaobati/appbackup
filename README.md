@@ -1,6 +1,3 @@
-================================================
-
-FILE: README.md
 AI-Powered Futures Trading Bot
 
 This project is a sophisticated PHP-based trading bot designed for automated futures trading on Binance. It leverages a Gemini AI model for intelligent decision-making and is built upon a robust, state-driven, asynchronous architecture to ensure high performance, stability, and resilience against race conditions.
@@ -112,38 +109,38 @@ Data Collection (collectDataForAI): A comprehensive snapshot of the market, acco
 
 AI Interaction: The data is sent to the Gemini AI, which returns a decision (OPEN_POSITION, CLOSE_POSITION, etc.).
 
-Decision Dispatching (executeAIDecision): The AI's decision is dispatched to a central handler, `executeAIDecision()`, which acts as a safety supervisor. This method intelligently routes the AI's suggested action based on the bot's current state and can override the AI's decision for safety (e.g., forcing a CLOSE_POSITION when in STATE_POSITION_UNPROTECTED or rejecting an OPEN_POSITION when a position already exists).
+Decision Dispatching (executeAIDecision): The AI's decision is dispatched to a central handler, `executeAIDecision()`, which acts as a safety supervisor. This method intelligently routes the AI's suggested action based on the bot's current state and can override the AI's decision for safety (e.g., forcing a `CLOSE_POSITION` when in `STATE_POSITION_UNPROTECTED` or rejecting an `OPEN_POSITION` when a position already exists).
 
 Executing an OPEN_POSITION Decision:
 
-handleDecisionInIdleState() receives the OPEN_POSITION command.
+When an `OPEN_POSITION` decision is received (and not overridden by `executeAIDecision`):
 
-AI Parameter Validation: The bot performs its own strict validation on the AI's suggested parameters (price, quantity, SL/TP). This function is critical for safety. It handles quantity determination in two ways:
-    *   **AI-Suggested Quantity:** If the active strategy's `quantity_determination_method` is `AI_SUGGESTED`, the bot uses the quantity provided directly by the AI.
+AI Parameter Validation: The bot performs its own strict validation on the AI's suggested parameters (price, quantity, SL/TP) using `validateOpenPositionParams()`. This function is critical for safety. It handles quantity determination in two ways:
+    *   **AI-Suggested Quantity:** If the bot's configuration `quantity_determination_method` is `AI_SUGGESTED`, the bot uses the quantity provided directly by the AI.
     *   **Calculated Quantity:** If the method is `INITIAL_MARGIN_TARGET`, the bot calculates the quantity based on the `initialMarginTargetUsdt` from its configuration and the AI's suggested entry price and leverage.
 It also checks for valid numbers and logical consistency (e.g., for a LONG, SL must be < Entry Price). If invalid, the action is rejected, and the bot returns to `STATE_IDLE`.
 
-If valid, attemptOpenPosition() is called, which places a limit order on Binance.
+If valid, `attemptOpenPosition()` is called, which places a limit order on Binance.
 
-The bot immediately transitions to STATE_ORDER_PENDING.
+The bot immediately transitions to `STATE_ORDER_PENDING`.
 
 The ORDER_PENDING State:
 
 The bot is now waiting for its entry order to be filled. It monitors two things:
 
-A WebSocket ORDER_TRADE_UPDATE event with a FILLED status.
+A WebSocket `ORDER_TRADE_UPDATE` event with a `FILLED` status.
 
 A periodic timer that will cancel the order if it remains unfilled for too long (e.g., 60 seconds).
 
-If the order is filled, the onOrderTradeUpdate() handler is triggered.
+If the order is filled, the `onOrderTradeUpdate()` handler is triggered.
 
 The POSITION_UNPROTECTED State:
 
 This is a critical, short-lived state entered immediately after an entry order is filled. The bot is in a position but does not yet have its SL and TP orders in place.
 
-Its only goal in this state is to place the protective orders by calling placeSlAndTpOrders().
+Its only goal in this state is to place the protective orders by calling `placeSlAndTpOrders()`.
 
-If placing the SL/TP orders succeeds, the bot transitions to STATE_POSITION_ACTIVE.
+If placing the SL/TP orders succeeds, the bot transitions to `STATE_POSITION_ACTIVE`.
 
 If placing them fails, it will attempt an emergency market close of the position to eliminate risk.
 
@@ -153,42 +150,42 @@ This is the standard "in-a-trade" state. The position is open and protected by S
 
 The bot now monitors for several events:
 
-An ORDER_TRADE_UPDATE message indicating the SL or TP has been hit.
+An `ORDER_TRADE_UPDATE` message indicating the SL or TP has been hit.
 
-A timer firing triggerAIUpdate(), which could lead to an AI decision to close the position early.
+A timer firing `triggerAIUpdate()`, which could lead to an AI decision to close the position early.
 
-A timer firing checkProfitTarget() if a manual profit target is set.
+A timer firing `checkProfitTarget()` if a manual profit target is set.
 
 The CLOSING State:
 
 This state is entered whenever a position needs to be closed (due to SL/TP fill, AI decision, etc.).
 
-The handlePositionClosed() function is the entry point. It immediately cancels any remaining protective orders (e.g., if TP is hit, the SL order is cancelled).
+The `handlePositionClosed()` function is the entry point. It immediately cancels any remaining protective orders (e.g., if TP is hit, the SL order is cancelled).
 
-Once all cleanup is complete, the bot transitions back to STATE_IDLE, ready for the next trade.
+Once all cleanup is complete, the bot transitions back to `STATE_IDLE`, ready for the next trade.
 
 ### Dynamic AI Operating Modes
 
-The bot's AI operates in one of four distinct modes, which dictate its autonomy and how it interacts with the trading logic. These modes are determined by the `quantity_determination_method` and `allow_ai_to_update_self` settings within the active `strategy_directives_json` in the `trade_logic_source` table.
+The bot's AI operates in one of four distinct modes, which dictate its autonomy and how it interacts with the trading logic. These modes are determined by the `quantity_determination_method` and `allow_ai_to_update_strategy` settings in the bot's configuration (stored in the `bot_configurations` table).
 
 *   **Executor Mode (Fixed Quantity, Fixed Strategy):**
     *   `quantity_determination_method`: `INITIAL_MARGIN_TARGET`
-    *   `allow_ai_to_update_self`: `false`
+    *   `allow_ai_to_update_strategy`: `false`
     *   **Description:** This is the most constrained mode. The bot calculates the trade quantity based on the `initialMarginTargetUsdt` from its configuration, and the AI is strictly forbidden from suggesting updates to its own strategy directives. The AI acts purely as an "executor" of the pre-defined strategy.
 
 *   **Tactical Mode (AI Quantity, Fixed Strategy):**
     *   `quantity_determination_method`: `AI_SUGGESTED`
-    *   `allow_ai_to_update_self`: `false`
+    *   `allow_ai_to_update_strategy`: `false`
     *   **Description:** In this mode, the AI has the autonomy to suggest the trade quantity. However, it is still restricted from updating its own strategy directives. The AI provides "tactical" decisions within a fixed strategic framework.
 
 *   **Mechanical Mode (Fixed Quantity, Self-Improving Strategy):**
     *   `quantity_determination_method`: `INITIAL_MARGIN_TARGET`
-    *   `allow_ai_to_update_self`: `true`
+    *   `allow_ai_to_update_strategy`: `true`
     *   **Description:** The trade quantity is calculated by the bot based on the `initialMarginTargetUsdt`. However, the AI is allowed to suggest updates to its own `strategy_directives_json` in the database, enabling continuous learning and adaptation of the underlying strategy.
 
 *   **Adaptive Mode (AI Quantity, Self-Improving Strategy):**
     *   `quantity_determination_method`: `AI_SUGGESTED`
-    *   `allow_ai_to_update_self`: `true`
+    *   `allow_ai_to_update_strategy`: `true`
     *   **Description:** This is the most autonomous mode. The AI determines both the trade quantity and has the ability to suggest updates to its own strategy directives. The AI can "adapt" its behavior and strategy over time based on market conditions and performance.
 
 Functions Present and Their Internal Working (Refactored)
@@ -197,49 +194,49 @@ The AiTradingBotFutures class is now organized into logical components, with key
 
 Core Lifecycle & State Management
 
-__construct(...): Initializes the bot, dependencies, logger, and loads all configurations.
+`__construct(...)`: Initializes the bot, dependencies, logger, and loads all configurations.
 
-run(): The main entry point that starts the event loop and the entire bot lifecycle.
+`run()`: The main entry point that starts the event loop and the entire bot lifecycle.
 
-stop(): Gracefully stops the bot, cancels timers, and closes connections.
+`stop()`: Gracefully stops the bot, cancels timers, and closes connections.
 
-transitionToState(string $newState, array $context = []): The central state management function. All changes to the bot's operational state must pass through this method, which logs the transition and ensures predictable behavior.
+`transitionToState(string $newState, array $context = [])`: The central state management function. All changes to the bot's operational state must pass through this method, which logs the transition and ensures predictable behavior.
 
-$botState: A private string property that holds the current state of the bot (e.g., STATE_IDLE, STATE_POSITION_ACTIVE). This replaces the old collection of boolean flags.
+`$botState`: A private string property that holds the current state of the bot (e.g., `STATE_IDLE`, `STATE_POSITION_ACTIVE`). This replaces the old collection of boolean flags.
 
 WebSocket & Timer Event Handlers
 
-handleUserDataStreamEvent(array $eventData): A dispatcher that routes incoming user data events to more specific handlers.
+`handleUserDataStreamEvent(array $eventData)`: A dispatcher that routes incoming user data events to more specific handlers.
 
-onOrderTradeUpdate(array $orderData): The primary driver of state transitions during a trade. It handles order fills, cancellations, and rejections, moving the bot from ORDER_PENDING to POSITION_UNPROTECTED, and triggering the final cleanup when a position is closed.
+`onOrderTradeUpdate(array $orderData)`: The primary driver of state transitions during a trade. It handles order fills, cancellations, and rejections, moving the bot from `ORDER_PENDING` to `POSITION_UNPROTECTED`, and triggering the final cleanup when a position is closed.
 
-onAccountUpdate(array $accountData): Monitors for external account changes, such as a position being closed manually on the Binance website, and triggers a state reconciliation.
+`onAccountUpdate(array $accountData)`: Monitors for external account changes, such as a position being closed manually on the Binance website, and triggers a state reconciliation.
 
-onListenKeyExpired(): Manages the renewal of the WebSocket listen key.
+`onListenKeyExpired()`: Manages the renewal of the WebSocket listen key.
 
-setupTimers(): Configures all periodic timers for heartbeats, AI updates, and order timeout checks.
+`setupTimers()`: Configures all periodic timers for heartbeats, AI updates, and order timeout checks.
 
 AI Decision & Execution Logic
 
-triggerAIUpdate(bool $isEmergency = false): Initiates the AI decision cycle, transitioning the bot to the EVALUATING state.
+`triggerAIUpdate(bool $isEmergency = false)`: Initiates the AI decision cycle, transitioning the bot to the `EVALUATING` state.
 
-executeAIDecision(array $decision): This is the central decision dispatcher and safety supervisor. It receives the AI's suggested action and, based on the bot's current state, determines the final action to execute. It can override the AI's decision for safety, for example:
+`executeAIDecision(array $decision)`: This is the central decision dispatcher and safety supervisor. It receives the AI's suggested action and, based on the bot's current state, determines the final action to execute. It can override the AI's decision for safety, for example:
     *   If the bot is in `STATE_POSITION_UNPROTECTED`, it will force a `CLOSE_POSITION` to mitigate risk, regardless of the AI's suggestion.
     *   If the AI suggests `OPEN_POSITION` while a position already exists, the bot will override it to `HOLD_POSITION` to prevent multiple concurrent positions (unless configured otherwise).
     *   If the AI suggests an action like `CLOSE_POSITION` while the bot is `IDLE`, it will be overridden to `DO_NOTHING`.
 This method ensures that the bot's actions are always logical and safe within its state machine.
 
-validateOpenPositionParams(array $params): A crucial security function that performs strict validation on all parameters provided by the AI before a trade is placed. It checks for logical consistency (e.g., SL/TP placement relative to entry price) in addition to valid data types.
+`validateOpenPositionParams(array $params)`: A crucial security function that performs strict validation on all parameters provided by the AI before a trade is placed. It checks for logical consistency (e.g., SL/TP placement relative to entry price) in addition to valid data types. It also determines the trade quantity based on the bot's configuration (`quantity_determination_method`), either using the AI's suggested value or calculating it from `initialMarginTargetUsdt`.
 
 Position & Order Management
 
-attemptOpenPosition(): Called from a state handler to place the initial limit entry order.
+`attemptOpenPosition()`: Called from a state handler to place the initial limit entry order.
 
-placeSlAndTpOrders(): Called immediately after an entry order is filled. Its sole purpose is to place protective SL and TP orders and move the bot to the safe STATE_POSITION_ACTIVE.
+`placeSlAndTpOrders()`: Called immediately after an entry order is filled. Its sole purpose is to place protective SL and TP orders and move the bot to the safe `STATE_POSITION_ACTIVE`.
 
-attemptClosePositionByAI(bool $isEmergency = false): Initiates a market close of the current position.
+`attemptClosePositionByAI(bool $isEmergency = false)`: Initiates a market close of the current position.
 
-handlePositionClosed(): A central cleanup function triggered when any closing event occurs. It cancels any remaining orders and transitions the bot back to the STATE_IDLE.
+`handlePositionClosed()`: A central cleanup function triggered when any closing event occurs. It cancels any remaining orders and transitions the bot back to the `STATE_IDLE`.
 
 Recreation Guide
 
@@ -314,7 +311,7 @@ The `dashboard.php` file provides a powerful web interface for managing your tra
 
 ### Strategy Configuration Example
 
-The AI's behavior is heavily influenced by its strategy directives, stored as JSON in the `trade_logic_source` table. Below is an example of a `strategy_directives_json` (from `d.json`) that users can edit via the Live Strategy Editor in the dashboard:
+The AI's behavior is heavily influenced by its strategy directives, stored as JSON in the `trade_logic_source` table. Below is an example of a `strategy_directives_json` (from `d.json`) that users can edit via the Live Strategy Editor in the dashboard. Note that `quantity_determination_method` and `allow_ai_to_update_strategy` are bot-level configuration parameters and are not part of this JSON.
 
 ```json
 {
@@ -338,7 +335,6 @@ The AI's behavior is heavily influenced by its strategy directives, stored as JS
     "default_rr_ratio": 3,
     "max_concurrent_positions": 1
   },
-  "quantity_determination_method": "INITIAL_MARGIN_TARGET",
   "entry_conditions_keywords": [
     "momentum_confirm",
     "breakout_consolidation"
@@ -354,7 +350,6 @@ The AI's behavior is heavily influenced by its strategy directives, stored as JS
   },
   "ai_confidence_threshold_for_trade": 0.7,
   "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.",
-  "allow_ai_to_update_self": false,
   "emergency_hold_justification": "Wait for clear market signal or manual intervention."
 }
 ```
