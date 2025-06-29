@@ -1,7 +1,3 @@
-Of course. Here is the complete and updated README.md file.
-
-This new version has been thoroughly rewritten to reflect the refactored code's more robust, state-driven architecture. It explains the new state machine, the decomposition of logic, and the enhanced security and validation measures, providing a professional and accurate guide to the improved bot.
-
 ================================================
 FILE: README.md
 AI-Powered Futures Trading Bot
@@ -114,13 +110,16 @@ Data Collection (collectDataForAI): A comprehensive snapshot of the market, acco
 
 AI Interaction: The data is sent to the Gemini AI, which returns a decision (OPEN_POSITION, CLOSE_POSITION, etc.).
 
-Decision Dispatching (executeAIDecision): The AI's decision is dispatched to a handler based on the bot's state before it entered EVALUATING. If the bot was IDLE, the decision goes to handleDecisionInIdleState().
+Decision Dispatching (executeAIDecision): The AI's decision is dispatched to a central handler, `executeAIDecision()`, which acts as a safety supervisor. This method intelligently routes the AI's suggested action based on the bot's current state and can override the AI's decision for safety (e.g., forcing a CLOSE_POSITION when in STATE_POSITION_UNPROTECTED or rejecting an OPEN_POSITION when a position already exists).
 
 Executing an OPEN_POSITION Decision:
 
 handleDecisionInIdleState() receives the OPEN_POSITION command.
 
-AI Parameter Validation: The bot performs its own strict validation on the AI's suggested parameters (price, quantity, SL/TP). It checks for valid numbers and logical consistency (e.g., for a LONG, SL must be < Entry Price). If invalid, the action is rejected, and the bot returns to STATE_IDLE.
+AI Parameter Validation: The bot performs its own strict validation on the AI's suggested parameters (price, quantity, SL/TP). This function is critical for safety. It handles quantity determination in two ways:
+    *   **AI-Suggested Quantity:** If the active strategy's `quantity_determination_method` is `AI_SUGGESTED`, the bot uses the quantity provided directly by the AI.
+    *   **Calculated Quantity:** If the method is `INITIAL_MARGIN_TARGET`, the bot calculates the quantity based on the `initialMarginTargetUsdt` from its configuration and the AI's suggested entry price and leverage.
+It also checks for valid numbers and logical consistency (e.g., for a LONG, SL must be < Entry Price). If invalid, the action is rejected, and the bot returns to `STATE_IDLE`.
 
 If valid, attemptOpenPosition() is called, which places a limit order on Binance.
 
@@ -166,6 +165,30 @@ The handlePositionClosed() function is the entry point. It immediately cancels a
 
 Once all cleanup is complete, the bot transitions back to STATE_IDLE, ready for the next trade.
 
+### Dynamic AI Operating Modes
+
+The bot's AI operates in one of four distinct modes, which dictate its autonomy and how it interacts with the trading logic. These modes are determined by the `quantity_determination_method` and `allow_ai_to_update_self` settings within the active `strategy_directives_json` in the `trade_logic_source` table.
+
+*   **Executor Mode (Fixed Quantity, Fixed Strategy):**
+    *   `quantity_determination_method`: `INITIAL_MARGIN_TARGET`
+    *   `allow_ai_to_update_self`: `false`
+    *   **Description:** This is the most constrained mode. The bot calculates the trade quantity based on the `initialMarginTargetUsdt` from its configuration, and the AI is strictly forbidden from suggesting updates to its own strategy directives. The AI acts purely as an "executor" of the pre-defined strategy.
+
+*   **Tactical Mode (AI Quantity, Fixed Strategy):**
+    *   `quantity_determination_method`: `AI_SUGGESTED`
+    *   `allow_ai_to_update_self`: `false`
+    *   **Description:** In this mode, the AI has the autonomy to suggest the trade quantity. However, it is still restricted from updating its own strategy directives. The AI provides "tactical" decisions within a fixed strategic framework.
+
+*   **Mechanical Mode (Fixed Quantity, Self-Improving Strategy):**
+    *   `quantity_determination_method`: `INITIAL_MARGIN_TARGET`
+    *   `allow_ai_to_update_self`: `true`
+    *   **Description:** The trade quantity is calculated by the bot based on the `initialMarginTargetUsdt`. However, the AI is allowed to suggest updates to its own `strategy_directives_json` in the database, enabling continuous learning and adaptation of the underlying strategy.
+
+*   **Adaptive Mode (AI Quantity, Self-Improving Strategy):**
+    *   `quantity_determination_method`: `AI_SUGGESTED`
+    *   `allow_ai_to_update_self`: `true`
+    *   **Description:** This is the most autonomous mode. The AI determines both the trade quantity and has the ability to suggest updates to its own strategy directives. The AI can "adapt" its behavior and strategy over time based on market conditions and performance.
+
 Functions Present and Their Internal Working (Refactored)
 
 The AiTradingBotFutures class is now organized into logical components, with key methods driving the state machine.
@@ -198,13 +221,11 @@ AI Decision & Execution Logic
 
 triggerAIUpdate(bool $isEmergency = false): Initiates the AI decision cycle, transitioning the bot to the EVALUATING state.
 
-executeAIDecision(array $decision): A dispatcher that calls the correct handler for an AI decision based on the bot's current state.
-
-handleDecisionInIdleState(array $decision): Processes an AI decision when the bot is idle. It will only act on an OPEN_POSITION command and will reject others.
-
-handleDecisionInPositionState(array $decision): Processes a decision when a position is active. It will only act on CLOSE_POSITION or HOLD_POSITION.
-
-handleDecisionInUnprotectedState(array $decision): A safety-critical handler that will enforce a CLOSE_POSITION action if the AI doesn't explicitly command it, ensuring an unprotected position is never left open.
+executeAIDecision(array $decision): This is the central decision dispatcher and safety supervisor. It receives the AI's suggested action and, based on the bot's current state, determines the final action to execute. It can override the AI's decision for safety, for example:
+    *   If the bot is in `STATE_POSITION_UNPROTECTED`, it will force a `CLOSE_POSITION` to mitigate risk, regardless of the AI's suggestion.
+    *   If the AI suggests `OPEN_POSITION` while a position already exists, the bot will override it to `HOLD_POSITION` to prevent multiple concurrent positions (unless configured otherwise).
+    *   If the AI suggests an action like `CLOSE_POSITION` while the bot is `IDLE`, it will be overridden to `DO_NOTHING`.
+This method ensures that the bot's actions are always logical and safe within its state machine.
 
 validateOpenPositionParams(array $params): A crucial security function that performs strict validation on all parameters provided by the AI before a trade is placed. It checks for logical consistency (e.g., SL/TP placement relative to entry price) in addition to valid data types.
 
@@ -287,21 +308,73 @@ Use code with caution.
 Bash
 IGNORE_WHEN_COPYING_END
 
-The setupdb.sql file creates a default user and bot configuration. You will need to use the dashboard.php interface to add your own securely encrypted API keys.
+The `setupdb.sql` file creates a default user and bot configuration. You will need to use the `dashboard.php` interface to add your own securely encrypted API keys and manage bot configurations.
 
-Configure Bot Instances & API Keys (Via Dashboard):
+### Dashboard Features
 
-Navigate to dashboard.php in your browser.
+The `dashboard.php` file provides a powerful web interface for managing your trading bots:
 
-Create an account.
+*   **User Authentication:** Secure login and registration system to manage your bot configurations and API keys.
+*   **Secure API Key Management:** Add, view, and delete your Binance and Gemini API key sets. All keys are encrypted at the application level using your `APP_ENCRYPTION_KEY` before being stored in the database.
+*   **Multi-Bot Configuration:** Create, edit, and manage multiple bot instances, each with its own trading symbol, kline interval, leverage, and other parameters.
+*   **Detailed Bot Overview:** For each configured bot, you can view:
+    *   Real-time status (running, stopped, error, initializing, shutdown).
+    *   Process ID (PID) and last heartbeat.
+    *   Performance summary (total profit, trades executed, win rate, last trade time).
+    *   Recent trade history.
+    *   Logs of AI decisions and bot feedback.
+*   **Live Strategy Editor:** A crucial feature that allows users to view and directly edit the active `strategy_directives_json` for the AI. This provides real-time control over the AI's core trading logic, including its operating mode, risk parameters, and entry/exit conditions.
 
-Go to the "API Keys" section and add your Binance and Gemini API keys. They will be encrypted using your APP_ENCRYPTION_KEY and stored securely.
+### Strategy Configuration Example
 
-Go to the "Bots Dashboard" and create a new bot configuration, linking it to the API key set you just created.
+The AI's behavior is heavily influenced by its strategy directives, stored as JSON in the `trade_logic_source` table. Below is an example of a `strategy_directives_json` (from `d.json`) that users can edit via the Live Strategy Editor in the dashboard:
+
+```json
+{
+  "schema_version": "1.0.0",
+  "strategy_type": "GENERAL_TRADING",
+  "current_market_bias": "NEUTRAL",
+  "User prompt": [
+    "Take profit Sniper entries."
+  ],
+  "preferred_timeframes_for_entry": [
+    "1m",
+    "5m",
+    "15m"
+  ],
+  "key_sr_levels_to_watch": {
+    "support": [],
+    "resistance": []
+  },
+  "risk_parameters": {
+    "target_risk_per_trade_usdt": 10.5,
+    "default_rr_ratio": 3,
+    "max_concurrent_positions": 1
+  },
+  "quantity_determination_method": "INITIAL_MARGIN_TARGET",
+  "entry_conditions_keywords": [
+    "momentum_confirm",
+    "breakout_consolidation"
+  ],
+  "exit_conditions_keywords": [
+    "momentum_stall",
+    "target_profit_achieved"
+  ],
+  "leverage_preference": {
+    "min": 100,
+    "max": 100,
+    "preferred": 100
+  },
+  "ai_confidence_threshold_for_trade": 0.7,
+  "ai_learnings_notes": "Initial default strategy directives. AI to adapt based on market and trade outcomes.",
+  "allow_ai_to_update_self": false,
+  "emergency_hold_justification": "Wait for clear market signal or manual intervention."
+}
+```
 
 Running the Bot
 
-The bot_manager.sh script is the recommended way to manage bot processes.
+The `bot_manager.sh` script is the recommended way to manage bot processes.
 
 Make the script executable (one time):
 
