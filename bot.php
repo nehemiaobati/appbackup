@@ -1169,43 +1169,38 @@ class AiTradingBotFutures
     }
 
     /**
-     * Cancels a single order and logs the action.
-     * @return PromiseInterface
-     */
-    private function cancelOrderAndLog(string $orderId, string $reasonForCancel): PromiseInterface
-    {
-        return $this->cancelFuturesOrder($this->tradingSymbol, $orderId)->then(
-            function ($data) use ($orderId, $reasonForCancel) {
-                $this->logger->info("Successfully cancelled order: {$orderId} ({$reasonForCancel}).");
-            },
-            function (\Throwable $e) use ($orderId, $reasonForCancel) {
-                if (str_contains($e->getMessage(), '-2011')) { // "Unknown order sent."
-                    $this->logger->info("Attempt to cancel order {$orderId} ({$reasonForCancel}) failed, it was likely already filled or cancelled.");
-                } else {
-                    $this->logger->error("Failed to cancel order: {$orderId} ({$reasonForCancel}).", ['err' => $e->getMessage()]);
-                }
-            }
-        );
-    }
-
-    /**
      * A utility to cancel all open orders for the current symbol.
      * @return PromiseInterface
      */
     private function cancelAllOpenOrdersForSymbol(): PromiseInterface
     {
         $promises = [];
+        $orderIdsToCancel = [];
+
         if ($this->activeSlOrderId) {
-            $promises[] = $this->cancelOrderAndLog($this->activeSlOrderId, "general cleanup");
+            $orderIdsToCancel[] = $this->activeSlOrderId;
             $this->activeSlOrderId = null;
         }
         if ($this->activeTpOrderId) {
-            $promises[] = $this->cancelOrderAndLog($this->activeTpOrderId, "general cleanup");
+            $orderIdsToCancel[] = $this->activeTpOrderId;
             $this->activeTpOrderId = null;
         }
         if ($this->activeEntryOrderId) {
-            $promises[] = $this->cancelOrderAndLog($this->activeEntryOrderId, "general cleanup");
+            $orderIdsToCancel[] = $this->activeEntryOrderId;
             $this->activeEntryOrderId = null;
+        }
+
+        foreach ($orderIdsToCancel as $orderId) {
+            $promises[] = $this->cancelFuturesOrder($this->tradingSymbol, $orderId)->then(
+                function ($data) use ($orderId) {
+                    $this->logger->info("Successfully cancelled order: {$orderId} (general cleanup).");
+                },
+                function (\Throwable $e) use ($orderId) {
+                    // makeRequestWithRetry already handles benign errors like -2011, -2013 by resolving.
+                    // So, any rejection here is a fatal error.
+                    $this->logger->error("Failed to cancel order: {$orderId} (general cleanup).", ['err' => $e->getMessage()]);
+                }
+            );
         }
         return \React\Promise\all($promises);
     }
@@ -1797,6 +1792,68 @@ PROMPT;
     }
 
     /**
+     * Centralized API request wrapper with retry and error classification.
+     *
+     * @param string $method HTTP method (GET, POST, PUT, DELETE).
+     * @param string $url The full URL for the API request.
+     * @param array $headers HTTP headers.
+     * @param string|null $body Request body for POST/PUT/DELETE.
+     * @param bool $isPublic Whether the endpoint is public (no API key/signature needed).
+     * @param int $maxRetries Maximum number of retries for temporary failures.
+     * @param int $attempt Current retry attempt number.
+     * @return PromiseInterface
+     */
+    private function makeRequestWithRetry(string $method, string $url, array $headers = [], ?string $body = null, bool $isPublic = false, int $maxRetries = 3, int $attempt = 1): PromiseInterface
+    {
+        $deferred = new Deferred();
+
+        $this->makeAsyncApiRequest($method, $url, $headers, $body, $isPublic)->then(
+            function ($data) use ($deferred) {
+                $deferred->resolve($data);
+            },
+            function (\Throwable $e) use ($method, $url, $headers, $body, $isPublic, $maxRetries, $attempt, $deferred) {
+                $errorCode = $e->getCode();
+                $errorMessage = $e->getMessage();
+                $isDeleteRequest = ($method === 'DELETE');
+
+                // Extract HTTP status code if available (e.g., from ReactPHP's Browser exception)
+                $httpStatusCode = 0;
+                if (preg_match('/^HTTP\serror\scode\s(\d+)/', $errorMessage, $matches)) {
+                    $httpStatusCode = (int)$matches[1];
+                }
+
+                // Benign Failures (Resolve and Continue)
+                $isBenign = $isDeleteRequest && in_array($errorCode, [-2011, -2013]);
+                if ($isBenign) {
+                    $this->logger->info("Benign API error for {$method} {$url}: {$errorMessage}. Resolving promise.", ['code' => $errorCode]);
+                    $deferred->resolve(['status' => 'benign_failure', 'code' => $errorCode, 'message' => $errorMessage]);
+                    return;
+                }
+
+                // Temporary Failures (Retry up to $maxRetries with backoff)
+                $isTemporary = in_array($errorCode, [-1001, -1003, -1007, -1021]) || ($httpStatusCode >= 500 && $httpStatusCode < 600);
+                if ($isTemporary && $attempt < $maxRetries) {
+                    $delay = $attempt * 2; // Linear backoff: 2s, 4s, 6s
+                    $this->logger->warning("Temporary API error for {$method} {$url}: {$errorMessage}. Retrying in {$delay}s (Attempt {$attempt}/{$maxRetries}).", ['code' => $errorCode, 'http_status' => $httpStatusCode]);
+                    $this->loop->addTimer($delay, function () use ($method, $url, $headers, $body, $isPublic, $maxRetries, $attempt, $deferred) {
+                        $this->makeRequestWithRetry($method, $url, $headers, $body, $isPublic, $maxRetries, $attempt + 1)->then(
+                            fn($data) => $deferred->resolve($data),
+                            fn(\Throwable $e) => $deferred->reject($e) // Propagate rejection if retry fails
+                        );
+                    });
+                    return;
+                }
+
+                // Fatal Failures (Reject Immediately)
+                $this->logger->critical("Fatal API error for {$method} {$url}: {$errorMessage}. Rejecting promise.", ['code' => $errorCode, 'http_status' => $httpStatusCode, 'exception' => $e]);
+                $deferred->reject($e);
+            }
+        );
+
+        return $deferred->promise();
+    }
+
+    /**
      * Converts an amount of a given asset to its USDT equivalent.
      * @return PromiseInterface
      */
@@ -1806,9 +1863,12 @@ PROMPT;
             return \React\Promise\resolve($amount);
         }
         $symbol = strtoupper($asset) . 'USDT';
-        return $this->getLatestKlineClosePrice($symbol, '1m')
-            ->then(function ($klineData) use ($amount) {
-                $price = (float)($klineData['price'] ?? 0);
+        return $this->makeRequestWithRetry('GET', $this->currentRestApiBaseUrl . '/fapi/v1/klines?' . http_build_query(['symbol' => $symbol, 'interval' => '1m', 'limit' => 1]), [], null, true)
+            ->then(function ($data) use ($amount) {
+                if (!isset($data[0][4])) {
+                    throw new \RuntimeException("Invalid klines response format for USDT conversion.");
+                }
+                $price = (float)$data[0][4];
                 return $price > 0 ? $amount * $price : 0.0;
             })
             ->otherwise(fn() => 0.0);
@@ -1816,6 +1876,7 @@ PROMPT;
 
     /**
      * Makes a generic asynchronous API request.
+     * This is the base method that makeRequestWithRetry wraps.
      * @return PromiseInterface
      */
     private function makeAsyncApiRequest(string $method, string $url, array $headers = [], ?string $body = null, bool $isPublic = false): PromiseInterface
@@ -1833,12 +1894,23 @@ PROMPT;
                 $body = (string)$response->getBody();
                 $data = json_decode($body, true);
                 if (json_last_error() !== JSON_ERROR_NONE) {
-                    throw new \RuntimeException("JSON decode error: " . json_last_error_msg());
+                    // Attempt to parse as plain text if JSON fails, for better error reporting
+                    if ($response->getStatusCode() >= 400) {
+                        throw new \RuntimeException("HTTP error code {$response->getStatusCode()}: " . $body, $response->getStatusCode());
+                    }
+                    throw new \RuntimeException("JSON decode error: " . json_last_error_msg() . " Raw response: " . substr($body, 0, 200));
                 }
                 if (isset($data['code']) && (int)$data['code'] < 0) {
                     throw new \RuntimeException("Binance API error ({$data['code']}): " . ($data['msg'] ?? 'Unknown error'), (int)$data['code']);
                 }
                 return $data;
+            },
+            function (\Throwable $e) {
+                // Re-throw with more context if it's a Guzzle/ReactPHP HTTP client exception
+                if ($e instanceof \React\Http\Message\ResponseException) {
+                    throw new \RuntimeException("HTTP error code {$e->getCode()}: " . $e->getMessage(), $e->getCode(), $e);
+                }
+                throw $e;
             }
         );
     }
@@ -1882,7 +1954,7 @@ PROMPT;
     private function fetchExchangeInfo(): PromiseInterface
     {
         $url = $this->currentRestApiBaseUrl . '/fapi/v1/exchangeInfo';
-        return $this->makeAsyncApiRequest('GET', $url, [], null, true)
+        return $this->makeRequestWithRetry('GET', $url, [], null, true)
             ->then(function ($data) {
                 $exchangeInfo = [];
                 foreach ($data['symbols'] as $symbolInfo) {
@@ -1907,7 +1979,7 @@ PROMPT;
     private function getFuturesAccountBalance(): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v2/balance', [], 'GET');
-        return $this->makeAsyncApiRequest('GET', $signedRequestData['url'], $signedRequestData['headers'])
+        return $this->makeRequestWithRetry('GET', $signedRequestData['url'], $signedRequestData['headers'])
             ->then(function ($data) {
                 $balances = [];
                 foreach ($data as $assetInfo) {
@@ -1924,7 +1996,7 @@ PROMPT;
     private function getLatestKlineClosePrice(string $symbol, string $interval): PromiseInterface
     {
         $url = $this->currentRestApiBaseUrl . '/fapi/v1/klines?' . http_build_query(['symbol' => strtoupper($symbol), 'interval' => $interval, 'limit' => 1]);
-        return $this->makeAsyncApiRequest('GET', $url, [], null, true)
+        return $this->makeRequestWithRetry('GET', $url, [], null, true)
             ->then(function ($data) {
                 if (!isset($data[0][4])) {
                     throw new \RuntimeException("Invalid klines response format.");
@@ -1940,7 +2012,7 @@ PROMPT;
     private function getHistoricalKlines(string $symbol, string $interval, int $limit = 100): PromiseInterface
     {
         $url = $this->currentRestApiBaseUrl . '/fapi/v1/klines?' . http_build_query(['symbol' => strtoupper($symbol), 'interval' => $interval, 'limit' => $limit]);
-        return $this->makeAsyncApiRequest('GET', $url, [], null, true)
+        return $this->makeRequestWithRetry('GET', $url, [], null, true)
             ->then(function ($data) {
                 return array_map(fn($k) => ['openTime' => (int)$k[0], 'open' => (string)$k[1], 'high' => (string)$k[2], 'low' => (string)$k[3], 'close' => (string)$k[4], 'volume' => (string)$k[5]], $data);
             });
@@ -1953,7 +2025,7 @@ PROMPT;
     private function getPositionInformation(string $symbol): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v2/positionRisk', ['symbol' => strtoupper($symbol)], 'GET');
-        return $this->makeAsyncApiRequest('GET', $signedRequestData['url'], $signedRequestData['headers'])
+        return $this->makeRequestWithRetry('GET', $signedRequestData['url'], $signedRequestData['headers'])
             ->then(function ($data) {
                 foreach ($data as $pos) {
                     if (isset($pos['symbol']) && $pos['symbol'] === strtoupper($this->tradingSymbol) && abs((float)$pos['positionAmt']) > 1e-9) {
@@ -1971,7 +2043,7 @@ PROMPT;
     private function setLeverage(string $symbol, int $leverage): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/leverage', ['symbol' => strtoupper($symbol), 'leverage' => $leverage], 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -1981,7 +2053,7 @@ PROMPT;
     private function getFuturesCommissionRate(string $symbol): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/commissionRate', ['symbol' => strtoupper($symbol)], 'GET');
-        return $this->makeAsyncApiRequest('GET', $signedRequestData['url'], $signedRequestData['headers']);
+        return $this->makeRequestWithRetry('GET', $signedRequestData['url'], $signedRequestData['headers']);
     }
 
     /**
@@ -1992,7 +2064,7 @@ PROMPT;
     {
         $params = ['symbol' => strtoupper($symbol), 'side' => strtoupper($side), 'positionSide' => 'BOTH', 'type' => 'LIMIT', 'quantity' => $this->formatQuantityByStepSize($symbol, $quantity), 'price' => $this->formatPriceByTickSize($symbol, $price), 'timeInForce' => 'GTC'];
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/order', $params, 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2006,7 +2078,7 @@ PROMPT;
             $params['reduceOnly'] = 'true';
         }
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/order', $params, 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2017,7 +2089,7 @@ PROMPT;
     {
         $params = ['symbol' => strtoupper($symbol), 'side' => strtoupper($side), 'positionSide' => 'BOTH', 'type' => 'STOP_MARKET', 'quantity' => $this->formatQuantityByStepSize($symbol, $quantity), 'stopPrice' => $this->formatPriceByTickSize($symbol, $stopPrice), 'reduceOnly' => 'true', 'workingType' => 'MARK_PRICE'];
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/order', $params, 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2028,7 +2100,7 @@ PROMPT;
     {
         $params = ['symbol' => strtoupper($symbol), 'side' => strtoupper($side), 'positionSide' => 'BOTH', 'type' => 'TAKE_PROFIT_MARKET', 'quantity' => $this->formatQuantityByStepSize($symbol, $quantity), 'stopPrice' => $this->formatPriceByTickSize($symbol, $stopPrice), 'reduceOnly' => 'true', 'workingType' => 'MARK_PRICE'];
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/order', $params, 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2038,7 +2110,7 @@ PROMPT;
     private function cancelFuturesOrder(string $symbol, string $orderId): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/order', ['symbol' => strtoupper($symbol), 'orderId' => $orderId], 'DELETE');
-        return $this->makeAsyncApiRequest('DELETE', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('DELETE', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2048,7 +2120,7 @@ PROMPT;
     private function getFuturesTradeHistory(string $symbol, int $limit = 10): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/userTrades', ['symbol' => strtoupper($symbol), 'limit' => $limit], 'GET');
-        return $this->makeAsyncApiRequest('GET', $signedRequestData['url'], $signedRequestData['headers']);
+        return $this->makeRequestWithRetry('GET', $signedRequestData['url'], $signedRequestData['headers']);
     }
 
     /**
@@ -2058,7 +2130,7 @@ PROMPT;
     private function startUserDataStream(): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/listenKey', [], 'POST');
-        return $this->makeAsyncApiRequest('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('POST', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2068,7 +2140,7 @@ PROMPT;
     private function keepAliveUserDataStream(string $listenKey): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/listenKey', ['listenKey' => $listenKey], 'PUT');
-        return $this->makeAsyncApiRequest('PUT', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('PUT', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 
     /**
@@ -2078,7 +2150,7 @@ PROMPT;
     private function closeUserDataStream(string $listenKey): PromiseInterface
     {
         $signedRequestData = $this->createSignedRequestData('/fapi/v1/listenKey', ['listenKey' => $listenKey], 'DELETE');
-        return $this->makeAsyncApiRequest('DELETE', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
+        return $this->makeRequestWithRetry('DELETE', $signedRequestData['url'], $signedRequestData['headers'], $signedRequestData['postData']);
     }
 }
 

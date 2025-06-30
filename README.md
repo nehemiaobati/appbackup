@@ -71,6 +71,10 @@ WebSocket Communication: Ratchet/Pawl is used to establish persistent WebSocket 
 
 REST API Interaction: The bot's internal "API component" handles all signed and unsigned REST API calls to Binance for operations like placing orders, fetching balances, and setting leverage.
 
+#### API Component
+
+`makeRequestWithRetry()`: This is the new, central workhorse for all critical Binance API calls (e.g., placing, canceling, or querying orders). It encapsulates the intelligent error classification (Benign, Temporary, Fatal) and the retry logic for temporary failures, ensuring robust and resilient API interactions. Higher-level functions now rely on the promise rejection from this method to trigger their safety procedures.
+
 Database (MySQL/MariaDB): The database is critical for persistence and state management, storing configurations, encrypted API keys, and comprehensive logs of all orders, AI interactions, and runtime statuses.
 
 AI Integration: The bot's internal "AI service component" manages communication with the Gemini AI, including prompt construction, API requests, and response parsing.
@@ -164,6 +168,18 @@ The `handlePositionClosed()` function is the entry point. It immediately cancels
 
 Once all cleanup is complete, the bot transitions back to `STATE_IDLE`, ready for the next trade.
 
+### Error Handling and Resilient Recovery Flow
+
+The bot now features a centralized and intelligent error recovery system, significantly enhancing its resilience to transient issues like temporary API or network failures. All critical Binance API interactions, such as placing and canceling orders, are routed through a single, robust wrapper method: `makeRequestWithRetry()`. This method intelligently classifies API errors into three categories, dictating the bot's response:
+
+*   **Benign Failures:** These are errors that, paradoxically, indicate a successful outcome from the bot's perspective (e.g., attempting to cancel an order that has already been filled or canceled by the exchange). The bot logs these events as warnings and continues its normal operation without interruption, as the desired state has been achieved.
+
+*   **Temporary Failures:** This category includes transient issues such as network timeouts, Binance API rate limits, or temporary exchange server errors. For these recoverable errors, the bot automatically retries the failed API action up to 3 times with an exponential backoff delay. This finite retry loop is crucial for maintaining operational continuity, preventing minor, temporary glitches from escalating into unnecessary high-level state changes or bot halts.
+
+*   **Fatal Failures:** These represent unrecoverable errors that indicate a fundamental problem, such as invalid API keys, incorrect account permissions, or malformed request parameters. Upon encountering a fatal error, the bot immediately ceases operation, logs the critical failure, and escalates to a high-alert safety state. This ensures that the bot does not continue operating under compromised or invalid conditions.
+
+This centralized approach to error handling improves the overall stability, predictability, and robustness of the trading system, allowing it to gracefully navigate common network and API instabilities without requiring manual intervention for minor issues.
+
 ### Dynamic AI Operating Modes
 
 The bot's AI operates in one of four distinct modes, which dictate its autonomy and how it interacts with the trading logic. These modes are determined by the `quantity_determination_method` and `allow_ai_to_update_strategy` settings in the bot's configuration (stored in the `bot_configurations` table).
@@ -230,13 +246,13 @@ This method ensures that the bot's actions are always logical and safe within it
 
 Position & Order Management
 
-`attemptOpenPosition()`: Called from a state handler to place the initial limit entry order.
+`attemptOpenPosition()`: Called from a state handler to place the initial limit entry order. This function now relies on the centralized `makeRequestWithRetry()` for API interaction, and its promise rejection will trigger high-level safety procedures like transitioning to `STATE_POSITION_UNPROTECTED` if the order placement fails.
 
-`placeSlAndTpOrders()`: Called immediately after an entry order is filled. Its sole purpose is to place protective SL and TP orders and move the bot to the safe `STATE_POSITION_ACTIVE`.
+`placeSlAndTpOrders()`: Called immediately after an entry order is filled. Its sole purpose is to place protective SL and TP orders and move the bot to the safe `STATE_POSITION_ACTIVE`. Similar to `attemptOpenPosition()`, it leverages `makeRequestWithRetry()` and handles promise rejections to manage failures, potentially leading to an emergency market close of the position.
 
 `attemptClosePositionByAI(bool $isEmergency = false)`: Initiates a market close of the current position.
 
-`handlePositionClosed()`: A central cleanup function triggered when any closing event occurs. It cancels any remaining orders and transitions the bot back to the `STATE_IDLE`.
+`handlePositionClosed()`: A central cleanup function triggered when any closing event occurs. It immediately cancels any remaining protective orders (e.g., if TP is hit, the SL order is cancelled) by routing through `makeRequestWithRetry()`. Failures in cancellation will trigger appropriate high-level safety procedures, such as transitioning to `STATE_POSITION_UNPROTECTED` to ensure the bot's state accurately reflects the market. Once all cleanup is complete, the bot transitions back to the `STATE_IDLE`.
 
 Recreation Guide
 
