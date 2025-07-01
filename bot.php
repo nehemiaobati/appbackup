@@ -498,7 +498,7 @@ class AiTradingBotFutures
         $this->takeProfitTargetUsdt = (float)$config['take_profit_target_usdt'];
         $this->profitCheckIntervalSeconds = (int)$config['profit_check_interval_seconds'];
         $this->maxScriptRuntimeSeconds = 604800; // Hardcoded max runtime
-        $this->historicalKlineIntervalsAIArray = ['1m', '3m', '5m', '15m', '30m', '1h'];
+        $this->historicalKlineIntervalsAIArray = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'];
         $this->primaryHistoricalKlineIntervalAI = '5m';
 
         // Load separated bot-level parameters
@@ -1369,7 +1369,7 @@ class AiTradingBotFutures
 
         $multiTfKlinePromises = [];
         foreach ($this->historicalKlineIntervalsAIArray as $interval) {
-            $multiTfKlinePromises[$interval] = $this->getHistoricalKlines($this->tradingSymbol, $interval, 100)->otherwise(fn() => []);
+            $multiTfKlinePromises[$interval] = $this->getHistoricalKlines($this->tradingSymbol, $interval, 65)->otherwise(fn() => []);
         }
         $promises['historical_klines'] = \React\Promise\all($multiTfKlinePromises);
 
