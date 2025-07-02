@@ -178,11 +178,7 @@ class AiTradingBotFutures
         $this->dbPassword = $dbPassword;
 
         $this->loop = Loop::get();
-        $this->logger->debug('Initializing HTTP client with custom 30s timeout.');
-        $connector = new Connector([
-            'timeout' => 120.0 // Set timeout to 30.0 seconds
-        ]);
-        $this->browser = new Browser($this->loop, $connector);
+        $this->browser = new Browser($this->loop);
 
         $logFormat = "[%datetime%] [%level_name%] [BotID:{$this->botConfigId}] [UserID:?] [%extra.state%] %message% %context%\n";
         $formatter = new LineFormatter($logFormat, 'Y-m-d H:i:s', true, true);
@@ -205,10 +201,16 @@ class AiTradingBotFutures
         $this->loadUserAndApiKeys();
         $this->loadActiveTradeLogicSource();
 
+        // Correctly initialize the browser with a custom timeout after the logger is available.
+        $connector = new Connector([
+            'timeout' => 120.0 // Set timeout to 120.0 seconds
+        ]);
+        $this->browser = new Browser($this->loop, $connector);
+
         $this->currentRestApiBaseUrl = $this->useTestnet ? self::BINANCE_FUTURES_TEST_REST_API_BASE_URL : self::BINANCE_FUTURES_PROD_REST_API_BASE_URL;
         $this->currentWsBaseUrlCombined = $this->useTestnet ? self::BINANCE_FUTURES_TEST_WS_BASE_URL_COMBINED : self::BINANCE_FUTURES_PROD_WS_BASE_URL;
 
-        $this->logger->info('AiTradingBotFutures instance successfully initialized and configured.');
+        $this->logger->info('AiTradingBotFutures instance successfully initialized and configured.', ['http_timeout' => 120.0]);
         $this->aiSuggestedLeverage = $this->defaultLeverage;
     }
 
