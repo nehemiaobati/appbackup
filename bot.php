@@ -1317,7 +1317,14 @@ class AiTradingBotFutures
      */
     public function triggerAIUpdate(bool $isEmergency = false): void
     {
-        if ($this->botState === self::STATE_EVALUATING && !$isEmergency) {
+        // Prevent AI updates during critical, non-interruptible states.
+        if (in_array($this->botState, [
+            self::STATE_EVALUATING,
+            self::STATE_ORDER_PENDING,
+            self::STATE_POSITION_UNPROTECTED,
+            self::STATE_CLOSING
+        ]) && !$isEmergency) {
+            $this->logger->debug("Skipping scheduled AI update due to critical bot state: {$this->botState}");
             return;
         }
 
@@ -1705,8 +1712,22 @@ PROMPT;
                 break;
             case 'HOLD_POSITION':
             case 'DO_NOTHING':
-                $targetState = $this->currentPositionDetails ? self::STATE_POSITION_ACTIVE : self::STATE_IDLE;
-                $this->transitionToState($targetState, ['reason' => 'AI decided to wait']);
+                if ($this->currentPositionDetails) {
+                    // This is the crucial check: Is the position ACTUALLY protected?
+                    if ($this->activeSlOrderId && $this->activeTpOrderId) {
+                        // Yes, it is. The safe state is POSITION_ACTIVE.
+                        $this->transitionToState(self::STATE_POSITION_ACTIVE, ['reason' => 'AI decided to hold protected position.']);
+                    } else {
+                        // No, it's not. This is an inconsistent state. Force a return to UNPROTECTED.
+                        $this->logger->warning('AI decided to hold, but position is unprotected. Re-entering UNPROTECTED state to force action.');
+                        $this->transitionToState(self::STATE_POSITION_UNPROTECTED, ['reason' => 'Correcting inconsistent state after AI hold decision.']);
+                        // Immediately attempt to place the missing orders again.
+                        $this->placeSlAndTpOrders();
+                    }
+                } else {
+                    // No position exists, so IDLE is the correct state.
+                    $this->transitionToState(self::STATE_IDLE, ['reason' => 'AI decided to do nothing.']);
+                }
                 break;
         }
 

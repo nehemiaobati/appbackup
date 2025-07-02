@@ -1,0 +1,116 @@
+{
+  "schema_version": "2.3.0",
+  "strategy_name": "Quantitative Conservative Scalper",
+  "calculation_directive": "Calculate all technical indicators (e.g., EMA, RSI, ATR, Volume MA) from the raw kline data. Evaluate all strategy rules based on these calculations.",
+  "objective": "Execute high-probability, short-term trades based on quantitative signals. Prioritize capital preservation and consistent, small gains. The primary goal is a profitable exit based on pre-calculated levels.",
+  "risk_management_protocol": {
+    "description": "Apply strict, quantitative rules for managing risk. Calculate all required values prior to trade entry.",
+    "max_concurrent_positions": 1,
+    "required_reward_to_risk_ratio": 1.5,
+    "stop_loss_placement_rule": {
+      "method": "ATR_OFFSET",
+      "description": "Calculate the StopLossPrice from the entry price using the Average True Range (ATR) on the entry_timeframe to place it beyond recent noise.",
+      "parameters": {
+        "timeframe": "entry_timeframe",
+        "atr_period": 14,
+        "atr_multiplier": 2
+      },
+      "rule": "For BUYs: entryPrice - (ATR * atr_multiplier). For SELLs: entryPrice + (ATR * atr_multiplier)."
+    },
+    "profit_target_placement_rule": {
+      "method": "FROM_STOP_LOSS",
+      "description": "Calculate the TakeProfitPrice based on the StopLossPrice and the required_reward_to_risk_ratio to ensure a fixed risk-reward profile.",
+      "rule": "For BUYs: entryPrice + ((entryPrice - stopLossPrice) * required_reward_to_risk_ratio). For SELLs: entryPrice - ((stopLossPrice - entryPrice) * required_reward_to_risk_ratio)."
+    },
+    "profit_protection_rule": {
+      "enabled": false,
+      "method": "TRAILING_STOP",
+      "description": "If triggered, move the stop loss to the entry price to secure the position from loss.",
+      "trigger_condition": "When trade_profit_ratio >= 1.0",
+      "action": "Adjust StopLossPrice to entryPrice."
+    }
+  },
+  "trade_entry_protocol": {
+    "description": "Evaluate the following confluence of conditions to justify opening a new position. A scoring system must be used to meet the minimum confidence threshold.",
+    "required_confidence_score": 3,
+    "confluence_conditions": [
+      {
+        "id": "TREND_FILTER",
+        "description": "Verify price is on the side of the medium-term trend.",
+        "weight": 1,
+        "timeframe": "primary_timeframe_1",
+        "rule": "For BUYs: price > EMA(45). For SELLs: price < EMA(45)."
+      },
+      {
+        "id": "MOMENTUM_STRUCTURE",
+        "description": "Verify short-term momentum aligns with medium-term trend.",
+        "weight": 1,
+        "timeframe": "primary_timeframe_2",
+        "rule": "For BUYs: EMA(9) > EMA(21). For SELLs: EMA(9) < EMA(21)."
+      },
+      {
+        "id": "ENTRY_TRIGGER",
+        "description": "Trigger an entry on a pullback to a short-term moving average.",
+        "weight": 1,
+        "timeframe": "entry_timeframe",
+        "rule": "For BUYs: price tests and holds above EMA(9). For SELLs: price tests and holds below EMA(9)."
+      },
+      {
+        "id": "RSI_CONFIRMATION",
+        "description": "Confirm momentum with RSI and ensure market is not in overbought/oversold conditions.",
+        "weight": 1,
+        "timeframe": "entry_timeframe",
+        "rule": "For BUYs: RSI(14) > 50 AND RSI(14) < 70. For SELLs: RSI(14) < 50 AND RSI(14) > 30."
+      }
+    ],
+    "market_condition_filter": {
+      "description": "Apply these filters to ensure the market is in a suitable state for scalping. Do not trade if any filter condition is met.",
+      "volatility_filter": {
+        "method": "ATR_COMPARISON",
+        "timeframe": "primary_timeframe_2",
+        "rule": "DO NOT TRADE if ATR(14) is > 200% of its 45-period moving average. This avoids explosive, unpredictable volatility."
+      },
+      "volume_filter": {
+        "method": "VOLUME_MA",
+        "timeframe": "primary_timeframe_2",
+        "rule": "DO NOT TRADE if Volume is < 75% of its 20-period moving average. This avoids illiquid market conditions."
+      }
+    }
+  },
+  "trade_exit_protocol": {
+    "description": "Evaluate the following rules to govern the active management and closure of a position.",
+    "early_exit_conditions": [
+      {
+        "condition": "Trade Invalidation",
+        "rule": "For a BUY, if a candle on the 'entry_timeframe' CLOSES below the structural support level used for entry, issue an immediate CLOSE_POSITION decision. Vice-versa for a SELL."
+      },
+      {
+        "condition": "Momentum Failure",
+        "rule": "For a BUY, if RSI(14) on 'entry_timeframe' crosses below 40, issue a CLOSE_POSITION decision. For a SELL, if RSI crosses above 60."
+      },
+      {
+        "condition": "Time-Based Stagnation",
+        "rule": "If a trade has been open for 20 candles on the 'entry_timeframe' and has not achieved the 1:1 profit_protection_rule trigger, issue a CLOSE_POSITION decision."
+      }
+    ]
+  },
+  "analysis_parameters": {
+    "description": "Defines the kline data scope for analysis. Timeframes are relative to the trade type.",
+    "primary_timeframe_1": "30m",
+    "primary_timeframe_2": "15m",
+    "entry_timeframe": "5m"
+  },
+  "technical_constraints": {
+    "description": "Mandatory technical requirements for the bot's execution logic. Failure to comply will result in rejection.",
+    "precision_adherence": "All 'price' and 'quantity' values in the response MUST strictly adhere to the precision defined in `market_data.symbol_precision`.",
+    "profitability_check": "The calculated distance between `entryPrice` and `takeProfitPrice` must be greater than the round-trip commission cost. Use `market_data.commission_rates` to calculate this cost.",
+    "logical_price_ordering": {
+      "for_buy_orders": "entryPrice < takeProfitPrice AND entryPrice > stopLossPrice.",
+      "for_sell_orders": "entryPrice > takeProfitPrice AND entryPrice < stopLossPrice."
+    }
+  },
+  "learning_directive": {
+    "description": "Mechanism for iterative strategy improvement.",
+    "notes_format": "Append a JSON object to 'ai_learnings_notes' after each trade with the following keys: {trade_id, outcome (win/loss/breakeven), exit_reason (stop_loss/take_profit/early_exit_condition), confidence_score_at_entry, market_notes (e.g., 'High volatility during London open')}"
+  }
+}
