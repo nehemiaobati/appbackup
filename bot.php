@@ -1224,6 +1224,38 @@ class AiTradingBotFutures
     }
 
     /**
+     * Cancels a specific order and logs the outcome to the database.
+     * This is a utility function to combine cancellation and logging.
+     *
+     * @param string $orderId The ID of the order to cancel.
+     * @param string $statusReason A string explaining why the order was cancelled (e.g., "CANCELED_TIMEOUT").
+     * @return PromiseInterface
+     */
+    private function cancelOrderAndLog(string $orderId, string $statusReason): PromiseInterface
+    {
+        return $this->cancelFuturesOrder($this->tradingSymbol, $orderId)->then(
+            function ($orderData) use ($orderId, $statusReason) {
+                // If cancellation is successful, log it.
+                // $orderData here is the response from the cancellation API call.
+                $this->addOrderToLog(
+                    orderId: $orderId,
+                    tradeId: null, // No trade for a cancelled order
+                    status: $statusReason,
+                    side: $orderData['side'] ?? 'UNKNOWN',
+                    assetPair: $this->tradingSymbol,
+                    price: (float)($orderData['price'] ?? 0),
+                    quantity: (float)($orderData['origQty'] ?? 0),
+                    marginAsset: $this->marginAsset,
+                    timestamp: time(),
+                    realizedPnl: 0.0,
+                    commissionUsdt: 0.0,
+                    reduceOnly: (bool)($orderData['reduceOnly'] ?? false)
+                );
+            }
+        );
+    }
+
+    /**
      * A wrapper function that logs order outcomes to the console and DB.
      * @return void
      */
