@@ -1353,7 +1353,7 @@ class AiTradingBotFutures
         if (in_array($this->botState, [
             self::STATE_EVALUATING,
             self::STATE_ORDER_PENDING,
-            self::STATE_POSITION_UNPROTECTED,
+            //self::STATE_POSITION_UNPROTECTED,
             self::STATE_CLOSING
         ]) && !$isEmergency) {
             $this->logger->debug("Skipping scheduled AI update due to critical bot state: {$this->botState}");
