@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/vendor/autoload.php';
 
 use Dotenv\Dotenv;
+use React\Socket\Connector;
 
 // --- Environment Variable Loading ---
 try {
@@ -177,7 +178,11 @@ class AiTradingBotFutures
         $this->dbPassword = $dbPassword;
 
         $this->loop = Loop::get();
-        $this->browser = new Browser($this->loop);
+        $this->logger->debug('Initializing HTTP client with custom 30s timeout.');
+        $connector = new Connector([
+            'timeout' => 120.0 // Set timeout to 30.0 seconds
+        ]);
+        $this->browser = new Browser($this->loop, $connector);
 
         $logFormat = "[%datetime%] [%level_name%] [BotID:{$this->botConfigId}] [UserID:?] [%extra.state%] %message% %context%\n";
         $formatter = new LineFormatter($logFormat, 'Y-m-d H:i:s', true, true);
