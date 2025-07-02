@@ -1381,6 +1381,14 @@ class AiTradingBotFutures
                 $activeEntryOrderDetails = ['orderId' => $this->activeEntryOrderId, 'seconds_pending' => time() - $this->activeEntryOrderTimestamp];
             }
 
+            $formattedHistoricalKlines = [];
+            foreach ($results['historical_klines'] as $interval => $klineData) {
+                $formattedHistoricalKlines[$interval] = [
+                    'klines' => $klineData['klines'],
+                    'count' => $klineData['count']
+                ];
+            }
+
             return [
                 'bot_metadata' => [
                     'current_timestamp_iso_utc' => gmdate('Y-m-d H:i:s'), 'trading_symbol' => $this->tradingSymbol,
@@ -1389,7 +1397,7 @@ class AiTradingBotFutures
                 'market_data' => [
                     'current_market_price' => $this->lastClosedKlinePrice,
                     'symbol_precision' => ['price_tick_size' => $this->exchangeInfo[$this->tradingSymbol]['tickSize'] ?? '0.0', 'quantity_step_size' => $this->exchangeInfo[$this->tradingSymbol]['stepSize'] ?? '0.0'],
-                    'historical_klines_multi_tf' => $results['historical_klines'], 'commission_rates' => $results['commission_rates']
+                    'historical_klines_multi_tf' => $formattedHistoricalKlines, 'commission_rates' => $results['commission_rates']
                 ],
                 'account_state' => ['balance_details' => $results['balance'], 'current_position_details' => $this->currentPositionDetails, 'recent_account_trades' => $results['trade_history']],
                 'bot_operational_state' => [
@@ -2014,7 +2022,8 @@ PROMPT;
         $url = $this->currentRestApiBaseUrl . '/fapi/v1/klines?' . http_build_query(['symbol' => strtoupper($symbol), 'interval' => $interval, 'limit' => $limit]);
         return $this->makeRequestWithRetry('GET', $url, [], null, true)
             ->then(function ($data) {
-                return array_map(fn($k) => ['openTime' => (int)$k[0], 'open' => (string)$k[1], 'high' => (string)$k[2], 'low' => (string)$k[3], 'close' => (string)$k[4], 'volume' => (string)$k[5]], $data);
+                $klines = array_map(fn($k) => ['openTime' => (int)$k[0], 'open' => (string)$k[1], 'high' => (string)$k[2], 'low' => (string)$k[3], 'close' => (string)$k[4], 'volume' => (string)$k[5]], $data);
+                return ['klines' => $klines, 'count' => count($klines)];
             });
     }
 
