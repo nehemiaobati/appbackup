@@ -1073,17 +1073,36 @@ class AiTradingBotFutures
 
         $orderSide = ($this->currentPositionDetails['side'] === 'LONG') ? 'SELL' : 'BUY';
 
-        $slPromise = $this->placeFuturesStopMarketOrder($this->tradingSymbol, $orderSide, $this->currentPositionDetails['quantity'], $this->aiSuggestedSlPrice);
-        $tpPromise = $this->placeFuturesTakeProfitMarketOrder($this->tradingSymbol, $orderSide, $this->currentPositionDetails['quantity'], $this->aiSuggestedTpPrice);
+        // Attach individual .then() handlers to capture order IDs immediately
+        $slPromise = $this->placeFuturesStopMarketOrder($this->tradingSymbol, $orderSide, $this->currentPositionDetails['quantity'], $this->aiSuggestedSlPrice)
+            ->then(function ($order) {
+                if (isset($order['orderId'])) {
+                    $this->activeSlOrderId = (string)$order['orderId'];
+                }
+                return $order; // Pass the result through for Promise\all()
+            });
+
+        $tpPromise = $this->placeFuturesTakeProfitMarketOrder($this->tradingSymbol, $orderSide, $this->currentPositionDetails['quantity'], $this->aiSuggestedTpPrice)
+            ->then(function ($order) {
+                if (isset($order['orderId'])) {
+                    $this->activeTpOrderId = (string)$order['orderId'];
+                }
+                return $order; // Pass the result through for Promise\all()
+            });
 
         \React\Promise\all([$slPromise, $tpPromise])->then(
             function (array $orders) {
-                $this->activeSlOrderId = (string)$orders[0]['orderId'];
-                $this->activeTpOrderId = (string)$orders[1]['orderId'];
+                // IDs are already set. We just need to confirm and transition.
+                $this->logger->info("Successfully placed protective orders.", ['slOrderId' => $this->activeSlOrderId, 'tpOrderId' => $this->activeTpOrderId]);
                 $this->transitionToState(self::STATE_POSITION_ACTIVE);
             },
             function (\Throwable $e) {
-                $this->logger->critical("Failed to place protective orders: " . $e->getMessage() . ". Attempting to close position for safety.");
+                // Now, even on failure, the bot's state is correct.
+                $this->logger->critical("Failed to place one or more protective orders: " . $e->getMessage() . ". Attempting to close position and clean up.", [
+                    'sl_order_id_placed' => $this->activeSlOrderId,
+                    'tp_order_id_placed' => $this->activeTpOrderId,
+                ]);
+                // cancelAllOpenOrdersForSymbol() will now correctly find and cancel any orphaned order.
                 $this->cancelAllOpenOrdersForSymbol()->finally(fn() => $this->attemptClosePositionByAI(true));
             }
         );
