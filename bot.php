@@ -202,7 +202,7 @@ class AiTradingBotFutures
         $this->loadActiveTradeLogicSource();
 
     // Correctly initialize the browser with a custom timeout after the logger is available.
-    $this->browser = (new Browser($this->loop))->withTimeout(120.0);
+    $this->browser = (new Browser($this->loop))->withTimeout(150.0);
 
     $this->currentRestApiBaseUrl = $this->useTestnet ? self::BINANCE_FUTURES_TEST_REST_API_BASE_URL : self::BINANCE_FUTURES_PROD_REST_API_BASE_URL;
     $this->currentWsBaseUrlCombined = $this->useTestnet ? self::BINANCE_FUTURES_TEST_WS_BASE_URL_COMBINED : self::BINANCE_FUTURES_PROD_WS_BASE_URL;
