@@ -1374,7 +1374,7 @@ class AiTradingBotFutures
     {
         // Prevent AI updates during critical, non-interruptible states.
         if (in_array($this->botState, [
-            //self::STATE_EVALUATING,
+            self::STATE_EVALUATING,
             self::STATE_ORDER_PENDING,
             //self::STATE_POSITION_UNPROTECTED,
             self::STATE_CLOSING
