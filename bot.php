@@ -502,7 +502,7 @@ class AiTradingBotFutures
         $this->takeProfitTargetUsdt = (float)$config['take_profit_target_usdt'];
         $this->profitCheckIntervalSeconds = (int)$config['profit_check_interval_seconds'];
         $this->maxScriptRuntimeSeconds = 604800; // Hardcoded max runtime
-        $this->historicalKlineIntervalsAIArray = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d'];
+        $this->historicalKlineIntervalsAIArray = ['5m', '15m', '30m'];
         $this->primaryHistoricalKlineIntervalAI = '5m';
 
         // Load separated bot-level parameters
