@@ -3,3 +3,6 @@
 *.pid
 *.lock
 vendor/
+full_data_for_ai_reference.json
+fulldataforai.json
+kline_debug_tool.php
