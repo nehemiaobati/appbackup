@@ -1387,6 +1387,7 @@ class AiTradingBotFutures
             $this->logger->warning('*** EMERGENCY AI UPDATE TRIGGERED ***');
         }
 
+        $stateBeforeEvaluation = $this->botState;
         $this->transitionToState(self::STATE_EVALUATING, ['emergency' => $isEmergency]);
         
         $this->currentDataForAIForDBLog = null;
@@ -1405,13 +1406,12 @@ class AiTradingBotFutures
                 $this->currentRawAIResponseForDBLog = $response;
                 $this->processAIResponse($response);
             })
-            ->catch(function (\Throwable $e) {
+            ->catch(function (\Throwable $e) use ($stateBeforeEvaluation) {
                 $this->logger->error('AI update cycle failed.', ['exception' => $e->getMessage()]);
                 $this->lastAIDecisionResult = ['status' => 'ERROR_CYCLE', 'message' => "AI cycle failed: " . $e->getMessage()];
                 $this->logAIInteractionToDb('ERROR_CYCLE', null, $this->lastAIDecisionResult, $this->currentDataForAIForDBLog, $this->currentPromptMD5ForDBLog, $this->currentRawAIResponseForDBLog);
                 
-                $previousState = $this->currentPositionDetails ? self::STATE_POSITION_UNPROTECTED : self::STATE_IDLE;
-                $this->transitionToState($previousState, ['reason' => 'AI cycle failed']);
+                $this->transitionToState($stateBeforeEvaluation, ['reason' => 'AI cycle failed']);
             });
     }
 
