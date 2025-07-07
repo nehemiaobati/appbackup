@@ -1,0 +1,16 @@
+body { background-color: #f0f2f5; }
+.card { border: none; }
+.status-running { color: #198754; font-weight: bold; }
+.status-stopped, .status-shutdown { color: #dc3545; font-weight: bold; }
+.status-error { color: #dc3545; font-weight: bold; }
+.status-initializing { color: #0dcaf0; font-weight: bold; }
+.nav-pills .nav-link.active { background-color: #343a40; }
+.btn-group .btn { white-space: nowrap; }
+.ai-log-entry { font-size: 0.85rem; border-bottom: 1px solid #eee; padding: 0.5rem 0; }
+.ai-log-entry:last-child { border-bottom: none; }
+.placeholder-glow .placeholder { min-height: 1.5rem; }
+#strategy-json-editor {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+    min-height: 400px;
+}
