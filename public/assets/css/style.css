@@ -14,3 +14,13 @@ body { background-color: #f0f2f5; }
     font-size: 0.9rem;
     min-height: 400px;
 }
+
+/* Styles for new dashboard cards */
+.bot-card { 
+    display: flex; 
+    flex-direction: column; 
+    height: 100%; 
+} 
+.bot-card .card-body { 
+    flex-grow: 1; 
+}

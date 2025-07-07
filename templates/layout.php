@@ -34,6 +34,7 @@
         <ul class="nav nav-pills mb-3">
           <li class="nav-item"><a href="/dashboard" class="nav-link <?= in_array($view, ['dashboard', 'create_config', 'bot_detail']) ? 'active' : '' ?>"><i class="bi bi-gear-wide-connected"></i> Bots Dashboard</a></li>
           <li class="nav-item"><a href="/api-keys" class="nav-link <?= $view === 'api_keys' ? 'active' : '' ?>"><i class="bi bi-key-fill"></i> API Keys</a></li>
+          <li class="nav-item"><a href="#" class="nav-link disabled"><i class="bi bi-wrench-adjustable-circle"></i> Settings</a></li>
         </ul>
         <?= $content ?>
     <?php else: // User is NOT logged in, show public views ?>

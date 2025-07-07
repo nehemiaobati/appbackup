@@ -324,10 +324,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- MAIN DASHBOARD PAGE SPECIFIC LOGIC ---
     const mainDashboardPage = {
         elements: {
-            tableBody: document.getElementById('bot-status-table-body')
+            botCardsContainer: document.getElementById('bot-cards-container')
         },
         init() {
-            if (!this.elements.tableBody) return false;
+            if (!this.elements.botCardsContainer) return false;
             this.updateBotStatuses();
             appInterval = setInterval(() => this.updateBotStatuses(), 3500);
             return true;
@@ -339,38 +339,86 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await response.json();
                 if (data.status !== 'success') return;
                 
-                this.elements.tableBody.innerHTML = '';
+                this.elements.botCardsContainer.innerHTML = ''; // Clear loading state or previous cards
                 if (data.bots.length === 0) {
-                    this.elements.tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted p-4">No bot configurations found.</td></tr>';
+                    this.elements.botCardsContainer.innerHTML = '<div class="col-12 text-center text-muted p-4">No bot configurations found.</div>';
                     return;
                 }
                 data.bots.forEach(bot => {
                     const status = (bot.status || 'stopped').toLowerCase();
                     const heartbeat = bot.last_heartbeat ? new Date(bot.last_heartbeat.replace(' ', 'T') + 'Z').toLocaleString() : 'N/A';
+                    
                     let actionButtons = '';
                     if (status === 'running' || status === 'initializing') {
-                        actionButtons = `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${bot.id}"><input type="hidden" name="pid" value="${bot.process_id}"><button type="submit" class="btn btn-sm btn-warning"><i class="bi bi-stop-circle"></i> Stop</button></form>`;
+                        actionButtons = `<form class="d-inline me-1" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${bot.id}"><input type="hidden" name="pid" value="${bot.process_id}"><button type="submit" class="btn btn-sm btn-warning"><i class="bi bi-stop-circle"></i> Stop</button></form>`;
                     } else {
-                        actionButtons = `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-success" ${!bot.is_active ? 'disabled' : ''}><i class="bi bi-play-circle"></i> Start</button></form>`;
+                        actionButtons = `<form class="d-inline me-1" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-success" ${!bot.is_active ? 'disabled' : ''}><i class="bi bi-play-circle"></i> Start</button></form>`;
                     }
-                    actionButtons += `<a href="/bots/${bot.id}" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye"></i> Overview</a>`;
+                    actionButtons += `<a href="/bots/${bot.id}" class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-eye"></i> View</a>`;
                     if (status !== 'running' && status !== 'initializing') {
                         actionButtons += `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="delete_config"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button></form>`;
                     }
                     
-                    const rowHtml = `
-                        <tr>
-                            <td><strong><a href="/bots/${bot.id}" class="text-decoration-none">${bot.name}</a></strong></td>
-                            <td>${bot.symbol}</td>
-                            <td class="status-${status} text-capitalize">${status}</td>
-                            <td>${heartbeat}</td>
-                            <td>${bot.process_id || 'N/A'}</td>
-                            <td><div class="btn-group">${actionButtons}</div></td>
-                        </tr>`;
-                    this.elements.tableBody.insertAdjacentHTML('beforeend', rowHtml);
+                    const cardHtml = `
+                        <div class="col-md-6 col-lg-4" data-bot-id="${bot.id}">
+                            <div class="card bot-card shadow-sm">
+                                <div class="card-body d-flex flex-column">
+                                    <h5 class="card-title mb-1">
+                                        <a href="/bots/${bot.id}" class="text-decoration-none text-dark">${bot.name}</a>
+                                    </h5>
+                                    <h6 class="card-subtitle mb-2 text-muted">${bot.symbol}</h6>
+                                    <div class="mb-3">
+                                        Status: <span class="badge rounded-pill status-${status} text-capitalize">${status}</span>
+                                    </div>
+                                    <div class="mb-3">
+                                        Total P/L: <span class="fw-bold bot-profit-value">Loading...</span>
+                                    </div>
+                                    <div class="mt-auto">
+                                        <div class="btn-group w-100" role="group" aria-label="Bot Actions">
+                                            ${actionButtons}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                    this.elements.botCardsContainer.insertAdjacentHTML('beforeend', cardHtml);
+
+                    // Fetch individual bot performance data
+                    this.fetchBotPerformance(bot.id);
                 });
             } catch (error) {
                 console.error('Main dashboard update failed:', error);
+            }
+        },
+        async fetchBotPerformance(botId) {
+            try {
+                const response = await fetch(`/api/bots/overview?id=${botId}`);
+                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+                const result = await response.json();
+                if (result.status !== 'success') throw new Error(result.message);
+
+                const totalProfit = result.data.performance.totalProfit;
+                const profitText = '$' + totalProfit.toFixed(2);
+                const profitClass = totalProfit >= 0 ? 'text-success' : 'text-danger';
+
+                const botCard = this.elements.botCardsContainer.querySelector(`[data-bot-id="${botId}"]`);
+                if (botCard) {
+                    const profitSpan = botCard.querySelector('.bot-profit-value');
+                    if (profitSpan) {
+                        profitSpan.textContent = profitText;
+                        profitSpan.className = `fw-bold bot-profit-value ${profitClass}`;
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to fetch performance for bot ${botId}:`, error);
+                const botCard = this.elements.botCardsContainer.querySelector(`[data-bot-id="${botId}"]`);
+                if (botCard) {
+                    const profitSpan = botCard.querySelector('.bot-profit-value');
+                    if (profitSpan) {
+                        profitSpan.textContent = 'N/A';
+                        profitSpan.classList.add('text-muted');
+                    }
+                }
             }
         }
     };
