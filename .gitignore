@@ -6,3 +6,5 @@ vendor/
 full_data_for_ai_reference.json
 fulldataforai.json
 kline_debug_tool.php
+okx_kline_fetcher.php
+binance_kline_fetcher.php
