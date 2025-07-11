@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Services\Database;
+use App\Services\MailService;
 use PDO;
 use PDOException;
 
@@ -85,6 +86,12 @@ class AuthController
             $stmt = $this->pdo->prepare("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)");
             $stmt->execute([$username, $email, $password_hash]);
             
+            // Send welcome email
+            $mailService = new MailService();
+            $welcomeSubject = "Welcome to Afrikenkid!";
+            $welcomeBody = "<h1>Welcome, {$username}!</h1><p>Thank you for registering with Afrikenkid. We're excited to have you on board.</p>";
+            $mailService->sendEmail($email, $username, $welcomeSubject, $welcomeBody);
+
             $_SESSION['success_message'] = "Registration successful! You can now log in.";
             header('Location: /login');
             exit;
