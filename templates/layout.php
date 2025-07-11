@@ -12,7 +12,7 @@
 
 <div class="container-fluid mt-4">
     <header class="d-flex justify-content-between align-items-center p-3 my-3 text-white bg-dark rounded shadow-sm">
-        <h4 class="mb-0"><i class="bi bi-robot"></i> P2Profit Bot Dashboard</h4>
+        <h4 class="mb-0"><i class="bi bi-robot"></i> AFRIKENKID </h4>
         <?php if (isset($current_user_id)): ?>
             <div>
                 <span class="me-3">User: <strong><?= htmlspecialchars($username_for_header) ?></strong></span>
