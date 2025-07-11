@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- GLOBAL ELEMENTS & STATE ---
     const alertContainer = document.getElementById('alert-container');
-    let appInterval; // Holds the setInterval ID for the current view
 
     // --- UTILITY FUNCTIONS ---
     const showAlert = (message, type = 'success', isTemp = false) => {
@@ -16,71 +15,77 @@ document.addEventListener('DOMContentLoaded', () => {
                 const alert = wrapper.querySelector('.alert');
                 if (alert) {
                     alert.classList.remove('show');
-                    // Wait for fade-out transition before removing
                     setTimeout(() => wrapper.remove(), 150);
                 }
             }, 5000);
         } else {
-            alertContainer.innerHTML = ''; // Clear existing persistent alerts
+            alertContainer.innerHTML = '';
             alertContainer.append(wrapper);
         }
     };
-    
-    // --- ASYNC ACTION HANDLERS ---
-    window.handleBotAction = async (event) => {
-        event.preventDefault();
-        const form = event.target;
-        const action = form.querySelector('[name="action"]').value;
-        const actionText = action.replace(/_/g, ' ');
 
-        if (!confirm(`Are you sure you want to ${actionText}?`)) return;
-
-        const button = form.querySelector('button[type="submit"]');
-        const originalButtonHtml = button.innerHTML;
-        button.disabled = true;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Working...';
-
-        try {
-            let apiPath;
-            switch(action) {
-                case 'start_bot':
-                    apiPath = '/api/bots/start';
-                    break;
-                case 'stop_bot':
-                    apiPath = '/api/bots/stop';
-                    break;
-                case 'delete_config':
-                    apiPath = '/api/bots/delete';
-                    break;
-                default:
-                    throw new Error('Unknown bot action.');
-            }
-
-            const response = await fetch(apiPath, { method: 'POST', body: new FormData(form) });
-            const data = await response.json();
-            
-            if (data.status === 'success') {
-                showAlert(data.message, 'success', true);
-                if (action === 'delete_config') {
-                    setTimeout(() => window.location.href = '/dashboard', 1500);
-                }
-            } else {
-                showAlert(data.message || 'An unknown error occurred.', 'danger');
-            }
-        } catch (error) {
-            showAlert('Request failed: ' + error.message, 'danger');
-        } finally {
-            if (action !== 'delete_config') {
-                button.disabled = false;
-                button.innerHTML = originalButtonHtml;
-            }
+    const toggleButtonLoading = (button, isLoading) => {
+        if (isLoading) {
+            button.dataset.originalHtml = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Working...';
+        } else if (button.dataset.originalHtml) {
+            button.disabled = false;
+            button.innerHTML = button.dataset.originalHtml;
         }
     };
+
+    // --- DELEGATED EVENT HANDLER FOR BOT ACTIONS ---
+    document.body.addEventListener('submit', async (event) => {
+        const form = event.target;
+        const actionInput = form.querySelector('[name="action"]');
+        if (!actionInput) return;
+
+        const action = actionInput.value;
+        const isBotAction = ['start_bot', 'stop_bot', 'delete_config'].includes(action);
+
+        if (isBotAction) {
+            event.preventDefault();
+            const actionText = action.replace(/_/g, ' ');
+            if (!confirm(`Are you sure you want to ${actionText}?`)) return;
+
+            const button = form.querySelector('button[type="submit"]');
+            toggleButtonLoading(button, true);
+
+            try {
+                let apiPath;
+                switch(action) {
+                    case 'start_bot': apiPath = '/api/bots/start'; break;
+                    case 'stop_bot':  apiPath = '/api/bots/stop'; break;
+                    case 'delete_config': apiPath = '/api/bots/delete'; break;
+                    default: throw new Error('Unknown bot action.');
+                }
+
+                const response = await fetch(apiPath, { method: 'POST', body: new FormData(form) });
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    showAlert(data.message, 'success', true);
+                    if (action === 'delete_config') {
+                        setTimeout(() => window.location.href = '/dashboard', 1500);
+                    }
+                } else {
+                    showAlert(data.message || 'An unknown error occurred.', 'danger');
+                }
+            } catch (error) {
+                showAlert('Request failed: ' + error.message, 'danger');
+            } finally {
+                if (action !== 'delete_config') {
+                    toggleButtonLoading(button, false);
+                }
+            }
+        }
+    });
 
     // --- OVERVIEW PAGE SPECIFIC LOGIC ---
     const overviewPage = {
         configId: null,
-        elements: { /* cache DOM elements */ },
+        elements: {},
         
         init() {
             const pageContainer = document.getElementById('bot-overview-page');
@@ -89,9 +94,29 @@ document.addEventListener('DOMContentLoaded', () => {
             this.configId = pageContainer.dataset.configId;
             this.cacheElements();
             this.addEventListeners();
-            this.runUpdateCycle(); // Initial load
-            appInterval = setInterval(() => this.runUpdateCycle(), 7000); // Poll every 7 seconds
+            this.runUpdateCycle();
             return true;
+        },
+
+        runUpdateCycle() {
+            fetch(`/api/bots/overview?id=${this.configId}`)
+                .then(response => {
+                    if (response.status === 401) {
+                        showAlert('Your session has expired. Please log in again.', 'danger');
+                        setTimeout(() => window.location.reload(), 3000);
+                        throw new Error('Session expired');
+                    }
+                    if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
+                    return response.json();
+                })
+                .then(result => {
+                    if (result.status !== 'success') throw new Error(result.message);
+                    this.updateUI(result.data);
+                })
+                .catch(error => console.error("Overview update failed:", error))
+                .finally(() => {
+                    setTimeout(() => this.runUpdateCycle(), 7000);
+                });
         },
         
         cacheElements() {
@@ -109,7 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 tradesBody: document.getElementById('recent-trades-body'),
                 aiLogsContainer: document.getElementById('ai-logs-container'),
                 updateConfigForm: document.getElementById('update-config-form'),
-                // New elements for strategy editor
                 updateStrategyForm: document.getElementById('update-strategy-form'),
                 strategyIdInput: document.getElementById('strategy-id-input'),
                 strategyJsonEditor: document.getElementById('strategy-json-editor'),
@@ -123,27 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
         addEventListeners() {
             this.elements.updateConfigForm.addEventListener('submit', (e) => this.handleConfigUpdate(e));
             this.elements.updateStrategyForm.addEventListener('submit', (e) => this.handleStrategyUpdate(e));
-        },
-        
-        async runUpdateCycle() {
-            try {
-                const response = await fetch(`/api/bots/overview?id=${this.configId}`);
-                if (response.status === 401) {
-                    showAlert('Your session has expired. Please log in again.', 'danger');
-                    if (appInterval) clearInterval(appInterval);
-                    setTimeout(() => window.location.reload(), 3000);
-                    return;
-                }
-                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
-                
-                const result = await response.json();
-                if (result.status !== 'success') throw new Error(result.message);
-                
-                this.updateUI(result.data);
-
-            } catch (error) {
-                console.error("Overview update failed:", error);
-            }
         },
         
         updateUI(data) {
@@ -166,10 +169,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // Controls
             let controlsHtml = '';
             if (status === 'running' || status === 'initializing') {
-                controlsHtml = `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${this.configId}"><input type="hidden" name="pid" value="${data.statusInfo.process_id}"><button type="submit" class="btn btn-danger"><i class="bi bi-stop-circle-fill"></i> Stop Bot</button></form>`;
+                controlsHtml = `<form class="d-inline"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${this.configId}"><input type="hidden" name="pid" value="${data.statusInfo.process_id}"><button type="submit" class="btn btn-danger"><i class="bi bi-stop-circle-fill"></i> Stop Bot</button></form>`;
             } else {
                 const isDisabled = data.configuration.is_active == 0 ? 'disabled title="Bot is disabled in config"' : '';
-                controlsHtml = `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${this.configId}"><button type="submit" class="btn btn-success" ${isDisabled}><i class="bi bi-play-circle-fill"></i> Start Bot</button></form>`;
+                controlsHtml = `<form class="d-inline"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${this.configId}"><button type="submit" class="btn btn-success" ${isDisabled}><i class="bi bi-play-circle-fill"></i> Start Bot</button></form>`;
             }
             this.elements.controlsContainer.innerHTML = controlsHtml;
             
@@ -212,38 +215,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 data.aiLogs.forEach(log => {
                     const decisionParams = JSON.parse(log.ai_decision_params_json || '{}');
                     const feedback = JSON.parse(log.bot_feedback_json || '{}');
-
-                    let feedbackHtml = '';
-                    if (feedback.override_reason) {
-                        feedbackHtml = `<span class="text-warning">Bot Override:</span> ${feedback.override_reason}`;
-                    } else {
-                        feedbackHtml = `<span>${decisionParams.rationale || 'No rationale provided.'}</span>`;
-                    }
-
-                    let aiDecisionText = '';
-                    if (decisionParams.action) {
-                        aiDecisionText = decisionParams.action;
-                        if (decisionParams.side) aiDecisionText += ` <strong class="text-${decisionParams.side === 'BUY' ? 'success' : 'danger'}">${decisionParams.side}</strong>`;
-                        if (decisionParams.entryPrice) aiDecisionText += ` @ ${decisionParams.entryPrice}`;
-                        if (decisionParams.quantity) aiDecisionText += `, Qty: ${decisionParams.quantity}`;
-                        if (decisionParams.stopLossPrice) aiDecisionText += `, SL: ${decisionParams.stopLossPrice}`;
-                        if (decisionParams.takeProfitPrice) aiDecisionText += `, TP: ${decisionParams.takeProfitPrice}`;
-                    } else {
-                        aiDecisionText = 'N/A';
-                    }
-                    
+                    let feedbackHtml = feedback.override_reason ? `<span class="text-warning">Bot Override:</span> ${feedback.override_reason}` : `<span>${decisionParams.rationale || 'No rationale provided.'}</span>`;
+                    let aiDecisionText = decisionParams.action ? `${decisionParams.action} <strong class="text-${decisionParams.side === 'BUY' ? 'success' : 'danger'}">${decisionParams.side || ''}</strong>` : 'N/A';
                     aiLogsHtml += `
                         <div class="ai-log-entry mx-2">
-                            <div>
-                                <span class="text-muted">${new Date(log.log_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</span> - 
-                                <strong class="text-primary">${log.executed_action_by_bot}</strong>
-                            </div>
-                            <div class="ps-2" style="font-size: 0.9em;">
-                                <strong>Bot Feedback:</strong> ${feedbackHtml}
-                            </div>
-                            <div class="ps-2" style="font-size: 0.9em;">
-                                <small><strong>Original AI Decision:</strong> ${aiDecisionText}</small>
-                            </div>
+                            <div><span class="text-muted">${new Date(log.log_timestamp_utc.replace(' ', 'T')+'Z').toLocaleString()}</span> - <strong class="text-primary">${log.executed_action_by_bot}</strong></div>
+                            <div class="ps-2" style="font-size: 0.9em;"><strong>Bot Feedback:</strong> ${feedbackHtml}</div>
+                            <div class="ps-2" style="font-size: 0.9em;"><small><strong>Original AI Decision:</strong> ${aiDecisionText}</small></div>
                         </div>`;
                 });
             }
@@ -251,29 +229,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update strategy editor
             if (data.strategy && document.activeElement !== this.elements.strategyJsonEditor) {
-                const prettyJson = JSON.stringify(JSON.parse(data.strategy.strategy_directives_json), null, 2);
-                this.elements.strategyJsonEditor.value = prettyJson;
+                this.elements.strategyJsonEditor.value = JSON.stringify(JSON.parse(data.strategy.strategy_directives_json), null, 2);
                 this.elements.strategyIdInput.value = data.strategy.id;
                 this.elements.strategyNameLabel.textContent = data.strategy.source_name || 'N/A';
                 this.elements.strategyVersionLabel.textContent = data.strategy.version || 'N/A';
-                this.elements.strategyUpdaterLabel.textContent = data.strategy.last_updated_by || 'N/A';
-                this.elements.strategyUpdatedLabel.textContent = data.strategy.last_updated_at_utc ? new Date(data.strategy.last_updated_at_utc.replace(' ', 'T') + 'Z').toLocaleString() : 'N/A';
             }
-
-
             this.elements.breadcrumbBotName.textContent = data.configuration.name;
-            if(document.activeElement.name !== 'name') {
-                 this.elements.updateConfigForm.querySelector('[name="name"]').value = data.configuration.name;
-            }
         },
 
         async handleConfigUpdate(event) {
             event.preventDefault();
             const form = event.target;
             const button = form.querySelector('button[type="submit"]');
-            const originalButtonHtml = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+            toggleButtonLoading(button, true);
 
             try {
                 const response = await fetch('/api/bots/update-config', { method: 'POST', body: new FormData(form) });
@@ -282,8 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (error) {
                 showAlert('Request failed: ' + error.message, 'danger', true);
             } finally {
-                button.disabled = false;
-                button.innerHTML = originalButtonHtml;
+                toggleButtonLoading(button, false);
             }
         },
 
@@ -292,134 +259,84 @@ document.addEventListener('DOMContentLoaded', () => {
             const form = event.target;
             const button = form.querySelector('button[type="submit"]');
             
-            // Client-side JSON validation
-            try {
-                JSON.parse(this.elements.strategyJsonEditor.value);
-            } catch (e) {
-                showAlert('Invalid JSON format. Please correct it before saving.', 'danger', true);
-                return;
-            }
+            try { JSON.parse(this.elements.strategyJsonEditor.value); } 
+            catch (e) { showAlert('Invalid JSON format.', 'danger', true); return; }
 
-            const originalButtonHtml = button.innerHTML;
-            button.disabled = true;
-            button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...';
+            toggleButtonLoading(button, true);
 
             try {
                 const response = await fetch('/api/bots/update-strategy', { method: 'POST', body: new FormData(form) });
                 const data = await response.json();
                 showAlert(data.message, data.status, true);
-                if (data.status === 'success') {
-                    // Trigger an immediate data refresh to show the new version number etc.
-                    this.runUpdateCycle();
-                }
             } catch (error) {
                 showAlert('Request failed: ' + error.message, 'danger', true);
             } finally {
-                button.disabled = false;
-                button.innerHTML = originalButtonHtml;
+                toggleButtonLoading(button, false);
             }
         }
     };
 
     // --- MAIN DASHBOARD PAGE SPECIFIC LOGIC ---
     const mainDashboardPage = {
-        elements: {
-            botCardsContainer: document.getElementById('bot-cards-container')
-        },
+        elements: { botCardsContainer: document.getElementById('bot-cards-container') },
+        
         init() {
             if (!this.elements.botCardsContainer) return false;
             this.updateBotStatuses();
-            appInterval = setInterval(() => this.updateBotStatuses(), 3500);
             return true;
         },
-        async updateBotStatuses() {
-            try {
-                const response = await fetch('/api/bots/statuses');
-                if (!response.ok) return;
-                const data = await response.json();
-                if (data.status !== 'success') return;
-                
-                this.elements.botCardsContainer.innerHTML = ''; // Clear loading state or previous cards
-                if (data.bots.length === 0) {
-                    this.elements.botCardsContainer.innerHTML = '<div class="col-12 text-center text-muted p-4">No bot configurations found.</div>';
-                    return;
-                }
-                data.bots.forEach(bot => {
-                    const status = (bot.status || 'stopped').toLowerCase();
-                    const heartbeat = bot.last_heartbeat ? new Date(bot.last_heartbeat.replace(' ', 'T') + 'Z').toLocaleString() : 'N/A';
-                    
-                    let actionButtons = '';
-                    if (status === 'running' || status === 'initializing') {
-                        actionButtons = `<form class="d-inline me-1" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${bot.id}"><input type="hidden" name="pid" value="${bot.process_id}"><button type="submit" class="btn btn-sm btn-warning"><i class="bi bi-stop-circle"></i> Stop</button></form>`;
-                    } else {
-                        actionButtons = `<form class="d-inline me-1" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-success" ${!bot.is_active ? 'disabled' : ''}><i class="bi bi-play-circle"></i> Start</button></form>`;
-                    }
-                    actionButtons += `<a href="/bots/${bot.id}" class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-eye"></i> View</a>`;
-                    if (status !== 'running' && status !== 'initializing') {
-                        actionButtons += `<form class="d-inline" onsubmit="return handleBotAction(event);"><input type="hidden" name="action" value="delete_config"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button></form>`;
-                    }
-                    
-                    const cardHtml = `
-                        <div class="col-md-6 col-lg-4" data-bot-id="${bot.id}">
-                            <div class="card bot-card shadow-sm">
-                                <div class="card-body d-flex flex-column">
-                                    <h5 class="card-title mb-1">
-                                        <a href="/bots/${bot.id}" class="text-decoration-none text-dark">${bot.name}</a>
-                                    </h5>
-                                    <h6 class="card-subtitle mb-2 text-muted">${bot.symbol}</h6>
-                                    <div class="mb-3">
-                                        Status: <span class="badge rounded-pill status-${status} text-capitalize">${status}</span>
-                                    </div>
-                                    <div class="mb-3">
-                                        Total P/L: <span class="fw-bold bot-profit-value">Loading...</span>
-                                    </div>
-                                    <div class="mt-auto">
-                                        <div class="btn-group w-100" role="group" aria-label="Bot Actions">
-                                            ${actionButtons}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>`;
-                    this.elements.botCardsContainer.insertAdjacentHTML('beforeend', cardHtml);
 
-                    // Fetch individual bot performance data
-                    this.fetchBotPerformance(bot.id);
+        updateBotStatuses() {
+            fetch('/api/bots/statuses')
+                .then(response => response.ok ? response.json() : Promise.reject('Network response was not ok.'))
+                .then(data => {
+                    if (data.status !== 'success') return;
+                    
+                    const container = this.elements.botCardsContainer;
+                    container.innerHTML = '';
+                    if (data.bots.length === 0) {
+                        container.innerHTML = '<div class="col-12 text-center text-muted p-4">No bot configurations found.</div>';
+                        return;
+                    }
+
+                    const template = document.getElementById('bot-card-template');
+                    data.bots.forEach(bot => {
+                        const clone = template.content.cloneNode(true);
+                        const card = clone.querySelector('.col-md-6');
+                        const status = (bot.status || 'stopped').toLowerCase();
+                        
+                        card.querySelector('.bot-name').textContent = bot.name;
+                        card.querySelector('.bot-name').href = `/bots/${bot.id}`;
+                        card.querySelector('.bot-symbol').textContent = bot.symbol;
+                        
+                        const statusEl = card.querySelector('.bot-status');
+                        statusEl.className = `badge rounded-pill status-${status} text-capitalize`;
+                        statusEl.textContent = status.replace(/_/g, ' ');
+
+                        const totalProfit = parseFloat(bot.total_profit) || 0;
+                        const profitEl = card.querySelector('.bot-profit-value');
+                        profitEl.textContent = '$' + totalProfit.toFixed(2);
+                        profitEl.className = `fw-bold bot-profit-value ${totalProfit >= 0 ? 'text-success' : 'text-danger'}`;
+                        
+                        let actionsHtml = '';
+                        if (status === 'running' || status === 'initializing') {
+                            actionsHtml += `<form class="d-inline me-1"><input type="hidden" name="action" value="stop_bot"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-warning"><i class="bi bi-stop-circle"></i> Stop</button></form>`;
+                        } else {
+                            actionsHtml += `<form class="d-inline me-1"><input type="hidden" name="action" value="start_bot"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-success" ${!bot.is_active ? 'disabled' : ''}><i class="bi bi-play-circle"></i> Start</button></form>`;
+                        }
+                        actionsHtml += `<a href="/bots/${bot.id}" class="btn btn-sm btn-outline-primary me-1"><i class="bi bi-eye"></i> View</a>`;
+                        if (status !== 'running' && status !== 'initializing') {
+                             actionsHtml += `<form class="d-inline"><input type="hidden" name="action" value="delete_config"><input type="hidden" name="config_id" value="${bot.id}"><button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button></form>`;
+                        }
+                        card.querySelector('.bot-actions').innerHTML = actionsHtml;
+
+                        container.appendChild(clone);
+                    });
+                })
+                .catch(error => console.error('Main dashboard update failed:', error))
+                .finally(() => {
+                    setTimeout(() => this.updateBotStatuses(), 3500);
                 });
-            } catch (error) {
-                console.error('Main dashboard update failed:', error);
-            }
-        },
-        async fetchBotPerformance(botId) {
-            try {
-                const response = await fetch(`/api/bots/overview?id=${botId}`);
-                if (!response.ok) throw new Error(`Server responded with status: ${response.status}`);
-                const result = await response.json();
-                if (result.status !== 'success') throw new Error(result.message);
-
-                const totalProfit = result.data.performance.totalProfit;
-                const profitText = '$' + totalProfit.toFixed(2);
-                const profitClass = totalProfit >= 0 ? 'text-success' : 'text-danger';
-
-                const botCard = this.elements.botCardsContainer.querySelector(`[data-bot-id="${botId}"]`);
-                if (botCard) {
-                    const profitSpan = botCard.querySelector('.bot-profit-value');
-                    if (profitSpan) {
-                        profitSpan.textContent = profitText;
-                        profitSpan.className = `fw-bold bot-profit-value ${profitClass}`;
-                    }
-                }
-            } catch (error) {
-                console.error(`Failed to fetch performance for bot ${botId}:`, error);
-                const botCard = this.elements.botCardsContainer.querySelector(`[data-bot-id="${botId}"]`);
-                if (botCard) {
-                    const profitSpan = botCard.querySelector('.bot-profit-value');
-                    if (profitSpan) {
-                        profitSpan.textContent = 'N/A';
-                        profitSpan.classList.add('text-muted');
-                    }
-                }
-            }
         }
     };
     

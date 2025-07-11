@@ -7,7 +7,7 @@
         <thead><tr><th>Name</th><th>Created</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
         <?php foreach ($user_keys as $key): ?>
-            <tr><td><?= htmlspecialchars($key['key_name']) ?></td><td><?= date('Y-m-d H:i', strtotime($key['created_at'])) ?></td><td><span class="badge bg-<?= $key['is_active'] ? 'success' : 'secondary' ?>"><?= $key['is_active'] ? 'Active' : 'Inactive' ?></span></td><td><form method="post" action="/api-keys" onsubmit="return confirm('Are you sure? This cannot be undone.');"><input type="hidden" name="action" value="delete_key"><input type="hidden" name="key_id" value="<?= $key['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form></td></tr>
+            <tr><td><?= htmlspecialchars($key['key_name']) ?></td><td><?= date('Y-m-d H:i', strtotime($key['created_at'])) ?></td><td><span class="badge bg-<?= $key['is_active'] ? 'success' : 'secondary' ?>"><?= $key['is_active'] ? 'Active' : 'Inactive' ?></span></td><td><form method="post" action="/api-keys"><input type="hidden" name="action" value="delete_key"><input type="hidden" name="key_id" value="<?= $key['id'] ?>"><button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form></td></tr>
         <?php endforeach; ?>
         </tbody>
     </table></div>

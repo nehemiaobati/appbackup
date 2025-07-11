@@ -371,7 +371,16 @@ class BotController
 
         try {
             session_write_close();
-            $stmt = $this->pdo->prepare("SELECT bc.id, bc.name, bc.symbol, bc.is_active, brs.status, brs.last_heartbeat, brs.process_id FROM bot_configurations bc LEFT JOIN bot_runtime_status brs ON bc.id = brs.bot_config_id WHERE bc.user_id = ? ORDER BY bc.id ASC");
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    bc.id, bc.name, bc.symbol, bc.is_active,
+                    brs.status, brs.last_heartbeat, brs.process_id,
+                    (SELECT SUM(realized_pnl_usdt - commission_usdt) FROM orders_log WHERE bot_config_id = bc.id) as total_profit
+                FROM bot_configurations bc
+                LEFT JOIN bot_runtime_status brs ON bc.id = brs.bot_config_id
+                WHERE bc.user_id = ?
+                ORDER BY bc.id ASC
+            ");
             $stmt->execute([$current_user_id]);
             $response = ['status' => 'success', 'bots' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
         } catch (Throwable $e) {

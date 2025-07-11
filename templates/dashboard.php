@@ -6,4 +6,26 @@
             <p class="mt-2 text-muted">Loading bot statuses...</p>
         </div>
     </div>
+
+    <template id="bot-card-template">
+        <div class="col-md-6 col-lg-4">
+            <div class="card bot-card shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title mb-1">
+                        <a href="#" class="text-decoration-none text-dark bot-name"></a>
+                    </h5>
+                    <h6 class="card-subtitle mb-2 text-muted bot-symbol"></h6>
+                    <div class="mb-3">
+                        Status: <span class="badge rounded-pill bot-status"></span>
+                    </div>
+                    <div class="mb-3">
+                        Total P/L: <span class="fw-bold bot-profit-value"></span>
+                    </div>
+                    <div class="mt-auto">
+                        <div class="btn-group w-100 bot-actions" role="group"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
 </div></div>
