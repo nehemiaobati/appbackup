@@ -1,14 +1,27 @@
-# P2Profit: AI-Powered Binance Futures Trading Bot
+# AFRIKENKID: AI-Powered Binance Futures Trading Bot
 
 ## Introduction
 
-P2Profit is a sophisticated PHP-based trading bot meticulously engineered for automated futures trading on Binance. It leverages the advanced capabilities of the Gemini AI model for intelligent decision-making, operating on a robust, state-driven, and asynchronous architecture built with ReactPHP. This design ensures high performance, stability, and resilience against race conditions. Complementing the core bot, P2Profit features a comprehensive web-based dashboard, providing users with intuitive tools for multi-bot configuration, secure API key management, real-time status monitoring, and a live strategy editor.
+AFRIKENKID is a sophisticated PHP-based trading bot meticulously engineered for automated futures trading on Binance. It leverages the advanced capabilities of the Gemini AI model for intelligent decision-making, operating on a robust, state-driven, and asynchronous architecture built with ReactPHP. This design ensures high performance, stability, and resilience against race conditions. Complementing the core bot, AFRIKENKID features a comprehensive web-based dashboard, providing users with intuitive tools for multi-bot configuration, secure API key management, real-time status monitoring, and a live strategy editor.
 
 ## Features
 
 *   **AI-Driven Trading**: Integrates the Gemini AI model to generate dynamic and adaptive trading signals and strategies.
 *   **State Machine Architecture**: The bot's core logic is governed by a formal state machine (e.g., `IDLE`, `ORDER_PENDING`, `POSITION_ACTIVE`), which prevents race conditions and ensures predictable, safe behavior in high-concurrency trading environments.
 *   **Asynchronous & High-Performance**: Built on the ReactPHP event loop, enabling non-blocking I/O for concurrent network operations (HTTP requests and WebSockets) and efficient timer management, leading to superior performance.
+*   **Comprehensive Web Dashboard**: Offers a user-friendly web interface with:
+    *   Secure user authentication and registration.
+    *   Multi-bot configuration and management.
+    *   Application-level encrypted API key management.
+    *   Real-time bot status monitoring (running, stopped, error, initializing, shutdown).
+    *   Live strategy editor for real-time adjustments to AI directives.
+    *   Detailed trade history and AI interaction logs.
+*   **Dynamic AI Operating Modes**: The AI operates in four distinct modes (Executor, Tactical, Mechanical, Adaptive), determined by bot configuration, dictating its autonomy in quantity determination and strategy updates.
+*   **Resilient Error Handling**: Features intelligent retry logic for temporary Binance API failures (e.g., rate limits, network issues) and immediate cessation for fatal errors, enhancing operational robustness.
+*   **Automated Risk Management**: Implements automatic Stop Loss (SL) and Take Profit (TP) order placement immediately after a position is opened to manage trade risk effectively.
+*   **Secure API Key Management**: Binance and Gemini API keys are stored and decrypted securely using application-level encryption with a user-defined `APP_ENCRYPTION_KEY`.
+*   **Detailed Database Logging**: Comprehensive logging of all trading orders, AI interactions, and bot state transitions to a MySQL/MariaDB database for audit and analysis.
+*   **Process Management**: Easy start/stop functionality for bot instances via the `bot_manager.sh` script.
 *   **Comprehensive Web Dashboard**: Offers a user-friendly web interface with:
     *   Secure user authentication and registration.
     *   Multi-bot configuration and management.

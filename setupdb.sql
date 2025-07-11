@@ -1,4 +1,4 @@
--- P2Profit - User-Based Trading Bot Database Schema
+-- AFRIKENKID - User-Based Trading Bot Database Schema
 -- Version: 2.1
 -- A production-ready, relational schema for a multi-user trading bot system.
 -- Separates bot operational parameters from AI strategy directives.
