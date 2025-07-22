@@ -4,6 +4,7 @@ declare(strict_types=1);
 use App\Controllers\AuthController;
 use App\Controllers\BotController;
 use App\Controllers\ApiKeyController;
+use App\Controllers\ContactController;
 
 // Helper function to get the current URI path without query string
 function getUriPath(): string
@@ -78,6 +79,7 @@ if ($path === '/api' || str_starts_with($path, '/api/')) {
 $authController = new AuthController();
 $botController = new BotController();
 $apiKeyController = new ApiKeyController();
+$contactController = new ContactController();
 
 switch ($path) {
     case '': // Root path, redirect to dashboard
@@ -125,6 +127,17 @@ switch ($path) {
             $botController->handleCreateConfig();
         } else {
             $botController->showCreateBotForm();
+        }
+        break;
+    case '/portfolio':
+        require_once __DIR__ . '/../templates/portfolio.php';
+        break;
+    case '/contact/submit':
+        if ($method === 'POST') {
+            $contactController->handleContactForm();
+        } else {
+            header('Location: /portfolio#contact'); // Redirect if not a POST request
+            exit;
         }
         break;
     default:

@@ -8,7 +8,7 @@ use PHPMailer\PHPMailer\Exception;
 
 class MailService
 {
-    public function sendEmail(string $recipientEmail, string $recipientName, string $subject, string $htmlBody, ?string $attachmentPath = null): bool
+    public function sendEmail(string $recipientEmail, string $recipientName, string $subject, string $htmlBody, ?string $attachmentPath = null, ?string $replyToEmail = null, ?string $replyToName = null): bool
     {
         $mail = new PHPMailer(true);
         try {
@@ -24,6 +24,11 @@ class MailService
             //Recipients
             $mail->setFrom($_ENV['MAIL_FROM_ADDRESS'], $_ENV['MAIL_FROM_NAME']);
             $mail->addAddress($recipientEmail, $recipientName);
+
+            // Reply-To
+            if ($replyToEmail) {
+                $mail->addReplyTo($replyToEmail, $replyToName ?? '');
+            }
 
             //Attachments
             if ($attachmentPath) {
