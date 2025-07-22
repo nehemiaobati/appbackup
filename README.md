@@ -35,6 +35,7 @@ AFRIKENKID is a sophisticated PHP-based trading bot meticulously engineered for 
 *   **Secure API Key Management**: Binance and Gemini API keys are stored and decrypted securely using application-level encryption with a user-defined `APP_ENCRYPTION_KEY`.
 *   **Detailed Database Logging**: Comprehensive logging of all trading orders, AI interactions, and bot state transitions to a MySQL/MariaDB database for audit and analysis.
 *   **Process Management**: Easy start/stop functionality for bot instances via the `bot_manager.sh` script.
+*   **Email Notifications**: Integrated MailService for sending email notifications, such as welcome emails upon user registration.
 
 ## Architecture Overview
 
@@ -138,6 +139,7 @@ The `executeAIDecision()` function acts as a central safety supervisor. It recei
 *   MySQL/MariaDB Server
 *   Binance Futures API Keys (Testnet or Production)
 *   Google Gemini API Key
+*   SMTP Server/Service Credentials
 
 ### Step 1: Clone & Install
 
@@ -179,6 +181,14 @@ APP_ENCRYPTION_KEY=YOUR_VERY_STRONG_32_CHARACTER_RANDOM_KEY_HERE
 
 # Gemini AI Configuration
 GEMINI_MODEL_NAME=gemini-pro
+
+# Mail Service Configuration (PHPMailer)
+MAIL_HOST=your.smtp.host.com
+MAIL_PORT=587
+MAIL_USERNAME=your_smtp_username
+MAIL_PASSWORD=your_smtp_password
+MAIL_FROM_ADDRESS=no-reply@yourdomain.com
+MAIL_FROM_NAME="AFRIKENKID Support"
 ```
 
 **Security Warning:** The `APP_ENCRYPTION_KEY` is critical for encrypting your API keys. It **must** be a 32-character random string. Do not share it and keep it secure.
@@ -459,3 +469,4 @@ The AI's behavior is heavily influenced by its strategy directives, stored as JS
 *   **Bot Fails to Start**: Check the bot's log file (`logs/<config_id>.log`) for fatal errors. This is often caused by an invalid configuration in the database or an inability to connect to Binance or the database.
 *   **Bot Ignores AI Decision**: This is likely a safety feature. Check the logs for messages about being in an "unexpected state" or "failed validation." The state machine will prevent actions that are not logical for the bot's current situation.
 *   **404 Errors on Web Pages**: If you can access the dashboard's homepage but get a 404 error when navigating to other pages (like `/bots/1`), it's likely that your web server's URL rewriting (`mod_rewrite` for Apache) is not configured correctly or the `.htaccess` file is not being read.
+*   **Email Delivery Issues**: If email notifications are not being sent, verify your SMTP configuration in the `.env` file (MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, MAIL_FROM_ADDRESS, MAIL_FROM_NAME) and ensure your SMTP server is accessible and credentials are correct.
