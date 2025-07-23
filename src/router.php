@@ -1,13 +1,27 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * router.php
+ *
+ * This file defines the routing logic for the application,
+ * directing incoming requests to the appropriate controller methods.
+ * It separates API routes (JSON responses) from web routes (HTML responses)
+ * and includes comprehensive comments for clarity.
+ */
+
 use App\Controllers\AuthController;
 use App\Controllers\BotController;
 use App\Controllers\ApiKeyController;
 use App\Controllers\ContactController;
 use App\Controllers\ResumeController;
 
-// Helper function to get the current URI path without query string
+/**
+ * Helper function to get the current URI path without query string parameters.
+ * Removes any trailing slashes for consistent routing.
+ *
+ * @return string The cleaned URI path.
+ */
 function getUriPath(): string
 {
     $uri = $_SERVER['REQUEST_URI'];
@@ -21,76 +35,127 @@ function getUriPath(): string
 $path = getUriPath();
 $method = $_SERVER['REQUEST_METHOD'];
 
-// API Routes (JSON responses)
-if ($path === '/api' || str_starts_with($path, '/api/')) {
-    header('Content-Type: application/json');
-    $botController = new BotController();
-
-    // Extract API action from path
-    $api_action = substr($path, strlen('/api'));
-    $api_action = trim($api_action, '/');
-
-    try {
-        switch ($api_action) {
-            case 'bots/overview':
-                $config_id = (int)($_GET['id'] ?? 0);
-                $botController->getBotOverviewApi($config_id);
-                break;
-            case 'bots/statuses':
-                $botController->getBotStatusesApi();
-                break;
-            case 'bots/start':
-                if ($method === 'POST') {
-                    $botController->startBotApi();
-                }
-                break;
-            case 'bots/stop':
-                if ($method === 'POST') {
-                    $botController->stopBotApi();
-                }
-                break;
-            case 'bots/delete':
-                if ($method === 'POST') {
-                    $botController->handleDeleteConfig();
-                }
-                break;
-            case 'bots/update-config':
-                if ($method === 'POST') {
-                    $botController->handleUpdateConfig();
-                }
-                break;
-            case 'bots/update-strategy':
-                if ($method === 'POST') {
-                    $botController->handleUpdateStrategy();
-                }
-                break;
-            default:
-                http_response_code(404);
-                echo json_encode(['status' => 'error', 'message' => 'API endpoint not found.']);
-                exit;
-        }
-    } catch (Throwable $e) {
-        http_response_code(500);
-        echo json_encode(['status' => 'error', 'message' => 'API Error: ' . $e->getMessage()]);
-    }
-    exit;
-}
-
-// Web Routes (HTML responses)
+// Initialize controllers for both API and Web routes
 $authController = new AuthController();
 $botController = new BotController();
 $apiKeyController = new ApiKeyController();
 $contactController = new ContactController();
 $resumeController = new ResumeController();
 
+/**
+ * API Routes (JSON responses)
+ * All API endpoints are prefixed with '/api'.
+ * Responses are typically JSON objects indicating status and data/error messages.
+ */
+if (str_starts_with($path, '/api/')) {
+    header('Content-Type: application/json');
+
+    // Extract the specific API action from the path
+    $api_action = substr($path, strlen('/api'));
+    $api_action = trim($api_action, '/');
+
+    try {
+        switch ($api_action) {
+            // GET /api/bots/overview - Retrieves an overview of a specific bot configuration.
+            // Requires 'id' query parameter.
+            case 'bots/overview':
+                $config_id = (int)($_GET['id'] ?? 0);
+                $botController->getBotOverviewApi($config_id);
+                break;
+
+            // GET /api/bots/statuses - Retrieves the statuses of all active bots.
+            case 'bots/statuses':
+                $botController->getBotStatusesApi();
+                break;
+
+            // POST /api/bots/start - Starts a bot.
+            // Expects bot configuration data in the request body.
+            case 'bots/start':
+                if ($method === 'POST') {
+                    $botController->startBotApi();
+                } else {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+                }
+                break;
+
+            // POST /api/bots/stop - Stops a running bot.
+            // Expects bot identification data in the request body.
+            case 'bots/stop':
+                if ($method === 'POST') {
+                    $botController->stopBotApi();
+                } else {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+                }
+                break;
+
+            // POST /api/bots/delete - Deletes a bot configuration.
+            // Expects configuration ID in the request body.
+            case 'bots/delete':
+                if ($method === 'POST') {
+                    $botController->handleDeleteConfig();
+                } else {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+                }
+                break;
+
+            // POST /api/bots/update-config - Updates a bot's configuration.
+            // Expects updated configuration data in the request body.
+            case 'bots/update-config':
+                if ($method === 'POST') {
+                    $botController->handleUpdateConfig();
+                } else {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+                }
+                break;
+
+            // POST /api/bots/update-strategy - Updates a bot's trading strategy.
+            // Expects strategy data in the request body.
+            case 'bots/update-strategy':
+                if ($method === 'POST') {
+                    $botController->handleUpdateStrategy();
+                } else {
+                    http_response_code(405); // Method Not Allowed
+                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+                }
+                break;
+
+            default:
+                // If no matching API endpoint is found
+                http_response_code(404);
+                echo json_encode(['status' => 'error', 'message' => 'API endpoint not found.']);
+                exit;
+        }
+    } catch (Throwable $e) {
+        // Catch any exceptions during API request processing and return a 500 error
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'API Error: ' . $e->getMessage()]);
+    }
+    exit; // Terminate script execution after handling API request
+}
+
+/**
+ * Web Routes (HTML responses)
+ * These routes render HTML pages for the user interface.
+ */
 switch ($path) {
-    case '': // Root path, redirect to dashboard
+    // Redirect root path to dashboard
+    case '':
     case '/':
         header('Location: /dashboard');
         exit;
+
+    // GET /dashboard - Displays the main dashboard page.
     case '/dashboard':
         $botController->showDashboard();
         break;
+
+    // /login - Handles user login.
+    // GET: Displays the login form.
+    // POST: Processes login credentials.
     case '/login':
         if ($method === 'POST') {
             $authController->handleLogin();
@@ -98,6 +163,10 @@ switch ($path) {
             $authController->showLogin();
         }
         break;
+
+    // /register - Handles new user registration.
+    // GET: Displays the registration form.
+    // POST: Processes registration data.
     case '/register':
         if ($method === 'POST') {
             $authController->handleRegister();
@@ -105,9 +174,15 @@ switch ($path) {
             $authController->showRegister();
         }
         break;
+
+    // GET /logout - Logs out the current user.
     case '/logout':
         $authController->handleLogout();
         break;
+
+    // /api-keys - Manages API keys for external services.
+    // GET: Displays the API keys management page.
+    // POST: Handles adding or deleting API keys based on 'action' parameter.
     case '/api-keys':
         if ($method === 'POST') {
             if (isset($_POST['action']) && $_POST['action'] === 'add_key') {
@@ -124,6 +199,10 @@ switch ($path) {
             $apiKeyController->showApiKeys();
         }
         break;
+
+    // /create-bot - Allows creation of new bot configurations.
+    // GET: Displays the form to create a new bot.
+    // POST: Processes the new bot configuration data.
     case '/create-bot':
         if ($method === 'POST') {
             $botController->handleCreateConfig();
@@ -131,9 +210,14 @@ switch ($path) {
             $botController->showCreateBotForm();
         }
         break;
+
+    // GET /portfolio - Displays the portfolio page.
     case '/portfolio':
         require_once __DIR__ . '/../templates/portfolio.php';
         break;
+
+    // POST /contact/submit - Handles submission of the contact form.
+    // Redirects to portfolio contact section if not a POST request.
     case '/contact/submit':
         if ($method === 'POST') {
             $contactController->handleContactForm();
@@ -142,15 +226,23 @@ switch ($path) {
             exit;
         }
         break;
+
+    // GET /resume/pdf - Generates and serves the resume as a PDF.
     case '/resume/pdf':
         $resumeController->generateResumePdf();
         break;
+
     default:
-        // Handle dynamic routes like /bots/{id}
+        /**
+         * Dynamic Routes
+         * Handles routes that follow a pattern, such as /bots/{id}.
+         */
+        // Matches /bots/{id} to show details for a specific bot.
         if (preg_match('/^\/bots\/(\d+)$/', $path, $matches)) {
             $config_id = (int)$matches[1];
             $botController->showBotDetails($config_id);
         } else {
+            // 404 Not Found for any unmatched routes
             http_response_code(404);
             echo "<h1>404 Not Found</h1><p>The requested URL was not found on this server.</p>";
         }
