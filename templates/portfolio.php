@@ -186,6 +186,7 @@
             .nav-right .btn { display: none; }
             .menu-toggle { display: block; }
             .education-grid, .personal-details-grid, .contact-grid, .references-grid { grid-template-columns: 1fr; }
+            .resume-btn { margin-top: 15px; margin-left: 0 !important; }
         }
     </style>
 </head>
@@ -234,7 +235,7 @@
                         <p class="subtitle">Software Developer</p>
                         <p>I'm a full-stack developer with a passion for crafting dynamic and user-friendly web experiences. Fluent in technologies from front-end languages to back-end powerhouses like Python and PHP, and proficient in cloud platforms like GCP and AWS. My expertise in Bash and Linux empowers me to manage server environments with ease. I am constantly exploring new technologies to stay at the forefront of web development and am excited to leverage my comprehensive skillset to create innovative and impactful solutions.</p>
                         <a href="#portfolio" class="btn">View My Work</a>
-                        <a href="/resume/pdf" class="btn" target="_blank" style="margin-left: 10px;">Download Resume (PDF)</a>
+                        <a href="/resume/pdf" class="btn resume-btn" target="_blank" style="margin-left: 10px;">Download Resume (PDF)</a>
                     </div>
                     <div class="hero-image-container">
                         <img src="https://placehold.co/250x250/EFEFEF/333333?text=N.O." alt="Nehemia Obati" class="hero-image">
