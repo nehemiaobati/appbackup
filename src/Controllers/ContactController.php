@@ -8,7 +8,7 @@ use App\Services\MailService;
 class ContactController
 {
     private MailService $mailService;
-    private string $recipientEmail = 'nehemiahobati@gmail.com'; // Configured recipient email
+    private string $recipientEmail = 'nehemiaobati@gmail.com'; // Configured recipient email
     private string $recipientName = 'Nehemia'; // Configured recipient name
 
     public function __construct()
