@@ -234,6 +234,7 @@
                         <p class="subtitle">Software Developer</p>
                         <p>I'm a full-stack developer with a passion for crafting dynamic and user-friendly web experiences. Fluent in technologies from front-end languages to back-end powerhouses like Python and PHP, and proficient in cloud platforms like GCP and AWS. My expertise in Bash and Linux empowers me to manage server environments with ease. I am constantly exploring new technologies to stay at the forefront of web development and am excited to leverage my comprehensive skillset to create innovative and impactful solutions.</p>
                         <a href="#portfolio" class="btn">View My Work</a>
+                        <a href="/resume/pdf" class="btn" target="_blank" style="margin-left: 10px;">Download Resume (PDF)</a>
                     </div>
                     <div class="hero-image-container">
                         <img src="https://placehold.co/250x250/EFEFEF/333333?text=N.O." alt="Nehemia Obati" class="hero-image">
@@ -283,26 +284,33 @@
                 <div class="section-title"><h2>Portfolio</h2></div>
                 <div class="portfolio-grid">
                     <div class="portfolio-card">
-                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=PIMIS+Project" alt="PIMIS Project Screenshot">
+                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=PIMIS" alt="PIMIS Project Screenshot">
                         <div class="portfolio-content">
-                            <h3>PIMIS - Public Investment Mgt. System</h3>
-                            <p>A system for the National Treasury. My role involved technical support, infrastructure maintenance, testing, and developer training.</p>
+                            <h3>PIMIS - Public Investment Management System</h3>
+                            <p>A system for the National Treasury. Project TENDER NO. TNT/025/2020-2021.</p>
                             <a href="https://pimisdev.treasury.go.ke/" target="_blank" class="btn">View Project</a>
                         </div>
                     </div>
                     <div class="portfolio-card">
-                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=ECIPMS+Project" alt="ECIPMS Project Screenshot">
+                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=ECIPMS" alt="ECIPMS Project Screenshot">
                         <div class="portfolio-content">
-                            <h3>ECIPMS - County Integrated Planning</h3>
-                            <p>An automated M&E system for the County Government of Kakamega. I was responsible for data management, user support, and system migrations.</p>
+                            <h3>ECIPMS - County Integrated Planning Management System</h3>
+                            <p>Automated M&E system for Kakamega County Government. CONTRACT FOR THE SUPPLY, INSTALLATION AND COMMISSIONING OF STANDARDIZED AUTOMATED MONITORING AND EVALUATION SYSTEM. Project TENDER NO. CGKK/OG/2020/2021/01.</p>
                              <a href="https://ecipms.kingsway.co.ke/" target="_blank" class="btn">View Project</a>
                         </div>
                     </div>
                      <div class="portfolio-card">
-                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=National+Treasury+Support" alt="IFMIS Support Project">
+                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=IFMIS" alt="IFMIS Project Screenshot">
                         <div class="portfolio-content">
-                            <h3>IFMIS & Oracle E-Procurement</h3>
-                            <p>Provided onsite support for IFMIS applications and enhancements for the National Treasury, including Oracle application license support.</p>
+                            <h3>IFMIS - National Treasury</h3>
+                            <p>Onsite support for IFMIS applications and E-Procurement enhancement. TENDER FOR PROVISION OF ONSITE SUPPORT FOR IFMIS APPLICATIONS AND ENHANCEMENT OF IFMIS E-PROCUREMENT. Project TENDER NO. TNT/029/2019-2020.</p>
+                        </div>
+                    </div>
+                    <div class="portfolio-card">
+                        <img src="https://placehold.co/600x400/192B2A/FFFFFF?text=Oracle" alt="Oracle Project Screenshot">
+                        <div class="portfolio-content">
+                            <h3>Oracle E-Procurement - National Treasury</h3>
+                            <p>Provision of Oracle application support licenses. TENDER FOR THE PROVISION OF ORACLE APPLICATION SUPPORT LICENSES. Project TENDER NO. TNT/026/2019-2020.</p>
                         </div>
                     </div>
                 </div>
@@ -320,9 +328,12 @@
                             <h3>ICT Support</h3>
                             <p class="company">Kingsway Business Systems LTD</p>
                             <ul>
-                                <li>Supporting key government information systems including PIMIS, ECIPMS, and IFMIS.</li>
-                                <li>Responsibilities span hardware/software troubleshooting, infrastructure maintenance, testing, documentation, and stakeholder communication.</li>
-                                <li>Conducting developer and user training sessions on new technologies and system features.</li>
+                                <li>Provided technical support, troubleshooting hardware/software, and environment setup for key government information systems (PIMIS, ECIPMS, IFMIS).</li>
+                                <li>Maintained infrastructure, including software patching/updates, backups, and system performance monitoring.</li>
+                                <li>Conducted manual and automated testing; maintained testing environments.</li>
+                                <li>Documented technical procedures, installation instructions, and system specifications.</li>
+                                <li>Delivered developer and user training sessions on new technologies and system features.</li>
+                                <li>Interfaced with project managers and business users on technical matters.</li>
                             </ul>
                         </div>
                     </div>

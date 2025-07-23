@@ -6,7 +6,8 @@
         "ratchet/pawl": "^0.4.1", 
         "monolog/monolog": "^2.9 || ^3.0",
         "vlucas/phpdotenv": "^5.0",
-        "phpmailer/phpmailer": "^6.9"
+        "phpmailer/phpmailer": "^6.9",
+        "fpdf/fpdf": "^1.86"
     },
     "autoload": {
         "psr-4": {

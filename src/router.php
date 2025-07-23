@@ -5,6 +5,7 @@ use App\Controllers\AuthController;
 use App\Controllers\BotController;
 use App\Controllers\ApiKeyController;
 use App\Controllers\ContactController;
+use App\Controllers\ResumeController;
 
 // Helper function to get the current URI path without query string
 function getUriPath(): string
@@ -80,6 +81,7 @@ $authController = new AuthController();
 $botController = new BotController();
 $apiKeyController = new ApiKeyController();
 $contactController = new ContactController();
+$resumeController = new ResumeController();
 
 switch ($path) {
     case '': // Root path, redirect to dashboard
@@ -139,6 +141,9 @@ switch ($path) {
             header('Location: /portfolio#contact'); // Redirect if not a POST request
             exit;
         }
+        break;
+    case '/resume/pdf':
+        $resumeController->generateResumePdf();
         break;
     default:
         // Handle dynamic routes like /bots/{id}
