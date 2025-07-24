@@ -150,6 +150,46 @@ CREATE TABLE IF NOT EXISTS `user_api_keys` (
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------
+
+--
+-- Table: `paystack_transactions`
+--
+CREATE TABLE `paystack_transactions` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `reference` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount_kes` decimal(20,2) NOT NULL,
+  `status` enum('pending','success','failed','abandoned') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
+  `channel` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `paystack_response_at_verification` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `reference` (`reference`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table: `paystack_transfer_recipients`
+--
+CREATE TABLE `paystack_transfer_recipients` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `recipient_code` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `account_number` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `bank_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `currency` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'KES',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `recipient_code` (`recipient_code`),
+  KEY `user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 --
 -- Indexes for dumped tables
 --
@@ -261,6 +301,18 @@ ALTER TABLE `user_api_keys`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `paystack_transactions`
+--
+ALTER TABLE `paystack_transactions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `paystack_transfer_recipients`
+--
+ALTER TABLE `paystack_transfer_recipients`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- Constraints for dumped tables
 --
 
@@ -302,6 +354,18 @@ ALTER TABLE `trade_logic_source`
 --
 ALTER TABLE `user_api_keys`
   ADD CONSTRAINT `fk_api_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `paystack_transactions`
+--
+ALTER TABLE `paystack_transactions`
+  ADD CONSTRAINT `fk_transactions_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `paystack_transfer_recipients`
+--
+ALTER TABLE `paystack_transfer_recipients`
+  ADD CONSTRAINT `fk_recipients_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 -- --------------------------------------------------------
 -- SAMPLE DATA INSERTION
