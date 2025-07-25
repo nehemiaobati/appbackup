@@ -238,7 +238,7 @@
                         <a href="/resume/pdf" class="btn resume-btn" target="_blank" style="margin-left: 10px;">Download Resume (PDF)</a>
                     </div>
                     <div class="hero-image-container">
-                        <img src="https://placehold.co/250x250/EFEFEF/333333?text=N.O." alt="Nehemia Obati" class="hero-image">
+                        <img src="assets/images/potrait.jpg" alt="Nehemia Obati" class="hero-image">
                     </div>
                 </div>
             </div>
