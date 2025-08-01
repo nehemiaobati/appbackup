@@ -86,18 +86,7 @@ class PaystackService
         // Generate a unique reference for the transaction
         $reference = 'PS_' . uniqid() . '_' . time();
 
-        try {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO paystack_transactions (user_id, reference, amount_kes, status) VALUES (:user_id, :reference, :amount_kes, 'pending')"
-            );
-            $stmt->execute([
-                ':user_id' => $userId,
-                ':reference' => $reference,
-                ':amount_kes' => $amount,
-            ]);
-        } catch (\PDOException $e) {
-            throw new DatabaseException("Failed to insert pending transaction: " . $e->getMessage(), (int)$e->getCode(), $e);
-        }
+        $this->insertPendingTransaction($userId, $reference, $amount);
 
         $payload = [
             "email" => $email,
@@ -131,19 +120,7 @@ class PaystackService
 
         $data = $response['data'];
 
-        try {
-            $stmt = $this->pdo->prepare(
-                "UPDATE paystack_transactions SET status = :status, channel = :channel, paystack_response_at_verification = :response_json WHERE reference = :reference"
-            );
-            $stmt->execute([
-                ':status' => $data['status'],
-                ':channel' => $data['channel'] ?? null,
-                ':response_json' => json_encode($response),
-                ':reference' => $reference,
-            ]);
-        } catch (\PDOException $e) {
-            throw new DatabaseException("Failed to update transaction status: " . $e->getMessage(), (int)$e->getCode(), $e);
-        }
+        $this->updateTransactionStatus($reference, $data['status'], $data['channel'] ?? null, $response);
 
         return $data;
     }
@@ -178,21 +155,7 @@ class PaystackService
 
         $recipientCode = $response['data']['recipient_code'];
 
-        try {
-            $stmt = $this->pdo->prepare(
-                "INSERT INTO paystack_transfer_recipients (user_id, recipient_code, name, account_number, bank_code, currency) VALUES (:user_id, :recipient_code, :name, :account_number, :bank_code, :currency)"
-            );
-            $stmt->execute([
-                ':user_id' => $userId,
-                ':recipient_code' => $recipientCode,
-                ':name' => $name,
-                ':account_number' => $accountNumber,
-                ':bank_code' => $bankCode,
-                ':currency' => 'KES',
-            ]);
-        } catch (\PDOException $e) {
-            throw new DatabaseException("Failed to insert transfer recipient: " . $e->getMessage(), (int)$e->getCode(), $e);
-        }
+        $this->insertTransferRecipient($userId, $recipientCode, $name, $accountNumber, $bankCode);
 
         return $recipientCode;
     }
@@ -209,20 +172,7 @@ class PaystackService
      */
     public function initiateSingleTransfer(int $dbRecipientId, float $amount, string $reason): array
     {
-        try {
-            $stmt = $this->pdo->prepare(
-                "SELECT recipient_code FROM paystack_transfer_recipients WHERE id = :id AND is_active = 1"
-            );
-            $stmt->execute([':id' => $dbRecipientId]);
-            $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$recipient) {
-                throw new DatabaseException("Transfer recipient with ID {$dbRecipientId} not found or is inactive.");
-            }
-            $recipientCode = $recipient['recipient_code'];
-        } catch (\PDOException $e) {
-            throw new DatabaseException("Failed to retrieve recipient code: " . $e->getMessage(), (int)$e->getCode(), $e);
-        }
+        $recipientCode = $this->getRecipientCode($dbRecipientId);
 
         $amountInKobo = (int)($amount * 100); // Convert KES to kobo/cents
 
@@ -292,5 +242,113 @@ class PaystackService
         }
 
         return $decodedResponse;
+    }
+
+    // --------------------------------------------------------------------------
+    // DATABASE INTERACTION METHODS
+    // --------------------------------------------------------------------------
+
+    /**
+     * Inserts a new pending transaction into the database.
+     *
+     * @param int $userId
+     * @param string $reference
+     * @param float $amount
+     * @throws DatabaseException
+     */
+    private function insertPendingTransaction(int $userId, string $reference, float $amount): void
+    {
+        try {
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO paystack_transactions (user_id, reference, amount_kes, status) VALUES (:user_id, :reference, :amount_kes, 'pending')"
+            );
+            $stmt->execute([
+                ':user_id' => $userId,
+                ':reference' => $reference,
+                ':amount_kes' => $amount,
+            ]);
+        } catch (\PDOException $e) {
+            throw new DatabaseException("Failed to insert pending transaction: " . $e->getMessage(), (int)$e->getCode(), $e);
+        }
+    }
+
+    /**
+     * Updates the status of a transaction after verification.
+     *
+     * @param string $reference
+     * @param string $status
+     * @param string|null $channel
+     * @param array $response
+     * @throws DatabaseException
+     */
+    private function updateTransactionStatus(string $reference, string $status, ?string $channel, array $response): void
+    {
+        try {
+            $stmt = $this->pdo->prepare(
+                "UPDATE paystack_transactions SET status = :status, channel = :channel, paystack_response_at_verification = :response_json WHERE reference = :reference"
+            );
+            $stmt->execute([
+                ':status' => $status,
+                ':channel' => $channel,
+                ':response_json' => json_encode($response),
+                ':reference' => $reference,
+            ]);
+        } catch (\PDOException $e) {
+            throw new DatabaseException("Failed to update transaction status: " . $e->getMessage(), (int)$e->getCode(), $e);
+        }
+    }
+
+    /**
+     * Inserts a new transfer recipient into the database.
+     *
+     * @param int $userId
+     * @param string $recipientCode
+     * @param string $name
+     * @param string $accountNumber
+     * @param string $bankCode
+     * @throws DatabaseException
+     */
+    private function insertTransferRecipient(int $userId, string $recipientCode, string $name, string $accountNumber, string $bankCode): void
+    {
+        try {
+            $stmt = $this->pdo->prepare(
+                "INSERT INTO paystack_transfer_recipients (user_id, recipient_code, name, account_number, bank_code, currency) VALUES (:user_id, :recipient_code, :name, :account_number, :bank_code, :currency)"
+            );
+            $stmt->execute([
+                ':user_id' => $userId,
+                ':recipient_code' => $recipientCode,
+                ':name' => $name,
+                ':account_number' => $accountNumber,
+                ':bank_code' => $bankCode,
+                ':currency' => 'KES',
+            ]);
+        } catch (\PDOException $e) {
+            throw new DatabaseException("Failed to insert transfer recipient: " . $e->getMessage(), (int)$e->getCode(), $e);
+        }
+    }
+
+    /**
+     * Retrieves the recipient code from the database.
+     *
+     * @param int $dbRecipientId
+     * @return string
+     * @throws DatabaseException
+     */
+    private function getRecipientCode(int $dbRecipientId): string
+    {
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT recipient_code FROM paystack_transfer_recipients WHERE id = :id AND is_active = 1"
+            );
+            $stmt->execute([':id' => $dbRecipientId]);
+            $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$recipient) {
+                throw new DatabaseException("Transfer recipient with ID {$dbRecipientId} not found or is inactive.");
+            }
+            return $recipient['recipient_code'];
+        } catch (\PDOException $e) {
+            throw new DatabaseException("Failed to retrieve recipient code: " . $e->getMessage(), (int)$e->getCode(), $e);
+        }
     }
 }
