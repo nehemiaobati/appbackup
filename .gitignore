@@ -3,6 +3,7 @@
 *.pid
 *.lock
 *.DS_Store
+*.env
 vendor/
 full_data_for_ai_reference.json
 fulldataforai.json
