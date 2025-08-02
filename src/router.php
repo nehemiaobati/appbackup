@@ -15,6 +15,7 @@ use App\Controllers\BotController;
 use App\Controllers\ApiKeyController;
 use App\Controllers\ContactController;
 use App\Controllers\ResumeController;
+use App\Controllers\PaystackController;
 
 /**
  * Helper function to get the current URI path without query string parameters.
@@ -41,6 +42,7 @@ $botController = new BotController();
 $apiKeyController = new ApiKeyController();
 $contactController = new ContactController();
 $resumeController = new ResumeController();
+$paystackController = new PaystackController();
 
 /**
  * API Routes (JSON responses)
@@ -230,6 +232,26 @@ switch ($path) {
     // GET /resume/pdf - Generates and serves the resume as a PDF.
     case '/resume/pdf':
         $resumeController->generateResumePdf();
+        break;
+
+    // Paystack Payment Routes
+    case '/paystack-payment':
+        $paystackController->showPaymentPage();
+        break;
+
+    case '/paystack/initialize':
+        if ($method === 'POST') {
+            $paystackController->initializePayment();
+        } else {
+            header('Location: /paystack-payment'); // Redirect if not a POST request
+            exit;
+        }
+        break;
+
+    case '/paystack/verify':
+        // Paystack typically redirects with GET parameters after a transaction
+        // but we can also handle POST if needed.
+        $paystackController->verifyPayment();
         break;
 
     default:

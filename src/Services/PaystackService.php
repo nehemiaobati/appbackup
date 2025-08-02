@@ -74,12 +74,13 @@ class PaystackService
      * @param int $userId The ID of the user initiating the transaction.
      * @param float $amount The amount in KES (e.g., 100.50).
      * @param string $email The customer's email address.
+     * @param string $callbackUrl The URL Paystack should redirect to after payment.
      * @param array $metadata Optional metadata to include with the transaction.
      * @return array The full response from the Paystack API.
      * @throws PaystackApiException If the Paystack API call fails.
      * @throws DatabaseException If there's an issue inserting the transaction into the database.
      */
-    public function initializeCharge(int $userId, float $amount, string $email, array $metadata = []): array
+    public function initializeCharge(int $userId, float $amount, string $email, string $callbackUrl, array $metadata = []): array
     {
         $amountInKobo = (int)($amount * 100); // Convert KES to kobo/cents
 
@@ -92,7 +93,7 @@ class PaystackService
             "email" => $email,
             "amount" => $amountInKobo,
             "currency" => "KES",
-            "callback_url" => "https://afrikenkid.com/", // As per requirement
+            "callback_url" => $callbackUrl,
             "channels" => ["mobile_money", "bank"],
             "metadata" => array_merge($metadata, ['reference' => $reference]), // Ensure reference is in metadata
             "reference" => $reference // Also include reference directly in payload
