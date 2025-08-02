@@ -7,6 +7,7 @@ use App\Services\Database;
 use PDO;
 use PDOException;
 use Exception;
+use Throwable;
 
 class BotController
 {
@@ -43,7 +44,7 @@ class BotController
             if ($m > 0) $parts[] = $m . 'm';
 
             return implode(' ', $parts) . ' ago';
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return 'N/A';
         }
     }
