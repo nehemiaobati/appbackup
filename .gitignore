@@ -9,4 +9,4 @@ fulldataforai.json
 kline_debug_tool.php
 okx_kline_fetcher.php
 binance_kline_fetcher.php
-.env2
+.envprod
