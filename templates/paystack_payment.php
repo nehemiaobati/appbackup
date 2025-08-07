@@ -91,7 +91,7 @@
         <form action="/paystack/initialize" method="POST">
             <div class="form-group">
                 <label for="email">Email:</label>
-                <input type="email" id="email" name="email" required placeholder="Enter your email">
+                <input type="email" id="email" name="email" required placeholder="Enter your email" value="<?php echo htmlspecialchars($userEmail); ?>">
             </div>
             <div class="form-group">
                 <label for="amount">Amount (KES):</label>

@@ -7,6 +7,8 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/style.css">
+    <!-- Google reCAPTCHA API script for "I'm not a robot" checkbox -->
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 </head>
 <body>
 
@@ -34,6 +36,7 @@
         <ul class="nav nav-pills mb-3">
           <li class="nav-item"><a href="/dashboard" class="nav-link <?= in_array($view, ['dashboard', 'create_config', 'bot_detail']) ? 'active' : '' ?>"><i class="bi bi-gear-wide-connected"></i> Bots Dashboard</a></li>
           <li class="nav-item"><a href="/api-keys" class="nav-link <?= $view === 'api_keys' ? 'active' : '' ?>"><i class="bi bi-key-fill"></i> API Keys</a></li>
+          <li class="nav-item"><a href="/paystack-payment" class="nav-link <?= $view === 'paystack_payment' ? 'active' : '' ?>"><i class="bi bi-credit-card-fill"></i> Paystack Payment</a></li>
           <li class="nav-item"><a href="#" class="nav-link disabled"><i class="bi bi-wrench-adjustable-circle"></i> Settings</a></li>
         </ul>
         <?= $content ?>

@@ -26,14 +26,46 @@ class AuthController
     {
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
+        $recaptchaResponse = $_POST['g-recaptcha-response'] ?? '';
 
-        if (empty($username) || empty($password)) {
-            $_SESSION['error_message'] = "Username and password are required.";
+        // Check if username, password, or reCAPTCHA response is empty
+        if (empty($username) || empty($password) || empty($recaptchaResponse)) {
+            $_SESSION['error_message'] = "Username, password, and reCAPTCHA are required.";
             header('Location: /login');
             exit;
         }
 
-        $stmt = $this->pdo->prepare("SELECT id, username, password_hash FROM users WHERE username = ?");
+        // Verify reCAPTCHA response with Google
+        $recaptchaSecretKey = '6LdqSp0rAAAAANI0RzI_CflD9hQAYVrUWzPlLUB8'; // Your reCAPTCHA secret key
+        $recaptchaUrl = 'https://www.google.com/recaptcha/api/siteverify';
+        $recaptchaData = [
+            'secret' => $recaptchaSecretKey,
+            'response' => $recaptchaResponse
+        ];
+
+        // Prepare options for the HTTP POST request
+        $options = [
+            'http' => [
+                'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+                'method'  => 'POST',
+                'content' => http_build_query($recaptchaData)
+            ]
+        ];
+        // Create a stream context for the request
+        $context  = stream_context_create($options);
+        // Send the request and get the response
+        $verify = file_get_contents($recaptchaUrl, false, $context);
+        // Decode the JSON response from reCAPTCHA
+        $captchaSuccess = json_decode($verify);
+
+        // Check if reCAPTCHA verification was successful
+        if (!$captchaSuccess->success) {
+            $_SESSION['error_message'] = "reCAPTCHA verification failed. Please try again.";
+            header('Location: /login');
+            exit;
+        }
+
+        $stmt = $this->pdo->prepare("SELECT id, username, email, password_hash FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch();
 
@@ -45,6 +77,7 @@ class AuthController
             session_regenerate_id(true);
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
+            $_SESSION['user_email'] = $user['email']; // Store user email in session for later use (e.g., pre-filling payment forms)
             header('Location: /dashboard');
             exit;
         } else {
