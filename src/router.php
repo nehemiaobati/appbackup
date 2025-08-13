@@ -147,7 +147,12 @@ switch ($path) {
     // Redirect root path to dashboard
     case '':
     case '/':
-        header('Location: /dashboard');
+        // For the landing page, we don't redirect to dashboard.
+        // Instead, we call a method to show the landing page.
+        // This assumes AuthController will be extended to include showLandingPage()
+        // or a new HomeController will be created. For now, let's assume AuthController.
+        $authController = new AuthController(); // Re-instantiate if not already done in this scope
+        $authController->showLandingPage();
         exit;
 
     // GET /dashboard - Displays the main dashboard page.

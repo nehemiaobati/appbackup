@@ -169,4 +169,28 @@ class AuthController
         $content = ob_get_clean();
         require __DIR__ . "/../../templates/layout.php";
     }
+
+    /**
+     * Renders the landing page.
+     */
+    public function showLandingPage(): void
+    {
+        // Set the view variable for the layout file to highlight the correct nav item (if any)
+        // For a landing page, no specific nav item is active by default.
+        $view = 'landing'; 
+        
+        // Ensure session variables are available for layout.php, even if null
+        $username_for_header = $_SESSION['username'] ?? '';
+        $current_user_id = $_SESSION['user_id'] ?? null;
+
+        // Start output buffering for the content of the landing page
+        ob_start();
+        // Include the landing page template
+        require __DIR__ . "/../../templates/landing.php";
+        // Get the buffered content and assign it to the $content variable
+        $content = ob_get_clean();
+        
+        // Include the main layout file to render the complete page
+        require __DIR__ . "/../../templates/layout.php";
+    }
 }

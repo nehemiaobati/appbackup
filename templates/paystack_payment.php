@@ -95,7 +95,7 @@
             </div>
             <div class="form-group">
                 <label for="amount">Amount (KES):</label>
-                <input type="number" id="amount" name="amount" step="0.01" min="1" required placeholder="e.g., 100.00">
+                <input type="number" id="amount" name="amount" step="0.01" min="100" required placeholder="e.g., 100.00">
             </div>
             <button type="submit">Pay Now</button>
         </form>
