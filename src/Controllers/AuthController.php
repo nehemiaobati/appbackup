@@ -99,9 +99,37 @@ class AuthController
             $email = trim($_POST['email'] ?? '');
             $password = $_POST['password'] ?? '';
             $password_confirm = $_POST['password_confirm'] ?? '';
+            $recaptchaResponse = $_POST['g-recaptcha-response'] ?? '';
 
-            if (empty($username) || empty($email) || empty($password)) {
-                throw new \Exception("All fields are required.");
+            if (empty($username) || empty($email) || empty($password) || empty($recaptchaResponse)) {
+                throw new \Exception("All fields and reCAPTCHA are required.");
+            }
+            // Verify reCAPTCHA response with Google
+            $recaptchaSecretKey = '6LdqSp0rAAAAANI0RzI_CflD9hQAYVrUWzPlLUB8'; // Your reCAPTCHA secret key
+            $recaptchaUrl = 'https://www.google.com/recaptcha/api/siteverify';
+            $recaptchaData = [
+                'secret' => $recaptchaSecretKey,
+                'response' => $recaptchaResponse
+            ];
+
+            // Prepare options for the HTTP POST request
+            $options = [
+                'http' => [
+                    'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+                    'method'  => 'POST',
+                    'content' => http_build_query($recaptchaData)
+                ]
+            ];
+            // Create a stream context for the request
+            $context  = stream_context_create($options);
+            // Send the request and get the response
+            $verify = file_get_contents($recaptchaUrl, false, $context);
+            // Decode the JSON response from reCAPTCHA
+            $captchaSuccess = json_decode($verify);
+
+            // Check if reCAPTCHA verification was successful
+            if (!$captchaSuccess->success) {
+                throw new \Exception("reCAPTCHA verification failed. Please try again.");
             }
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 throw new \Exception("Invalid email address format.");
