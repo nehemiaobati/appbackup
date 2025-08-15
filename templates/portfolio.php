@@ -194,7 +194,6 @@
 
     <div id="alert-container" style="position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1001; width: 90%; max-width: 600px;">
     <?php
-    session_start(); // Ensure session is started for message handling
     if (isset($_SESSION['success_message'])): ?>
     <div style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; margin-bottom: 15px; border-radius: 5px; text-align: center; position: relative;">
         <?= htmlspecialchars($_SESSION['success_message']) ?>
