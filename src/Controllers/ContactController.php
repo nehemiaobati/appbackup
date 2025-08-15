@@ -8,13 +8,16 @@ use App\Services\MailService;
 class ContactController
 {
     private MailService $mailService;
-    private string $recipientEmail = 'nehemiaobati@gmail.com'; // Configured recipient email
-    private string $recipientName = 'Nehemia'; // Configured recipient name
+    private string $recipientEmail;
+    private string $recipientName;
 
     public function __construct()
     {
         $this->mailService = new MailService();
+        $this->recipientEmail = $_ENV['CONTACT_FORM_RECIPIENT_EMAIL'] ?? 'default@example.com';
+        $this->recipientName = $_ENV['CONTACT_FORM_RECIPIENT_NAME'] ?? 'Default Recipient';
     }
+
 
     public function handleContactForm(): void
     {

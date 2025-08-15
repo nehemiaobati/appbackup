@@ -8,7 +8,7 @@
         <input type="hidden" name="action" value="create_config">
         <div class="row g-3">
             <div class="col-md-6"><label class="form-label">Configuration Name</label><input type="text" class="form-control" name="name" value="" placeholder="e.g., My BTC Test Bot" required></div>
-            <div class="col-md-6"><label class="form-label">API Key Set</label><select class="form-select" name="user_api_key_id" required><option value="" disabled selected>-- Select an API Key --</option><?php foreach ($user_api_keys as $key): ?><option value="<?= $key['id'] ?>"><?= htmlspecialchars($key['key_name']) ?></option><?php endforeach; ?></select></div>
+            <div class="col-md-6"><label class="form-label">API Key Set</label><select class="form-select" name="user_api_key_id" required><option value="" disabled selected>-- Select an API Key --</option><?php foreach ($user_api_keys as $key): ?><option value="<?= htmlspecialchars((string)$key['id']) ?>"><?= htmlspecialchars($key['key_name']) ?></option><?php endforeach; ?></select></div>
             <div class="col-md-4"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="BTCUSDT" required></div>
             <div class="col-md-4"><label class="form-label">Margin Asset</label><input type="text" class="form-control" name="margin_asset" value="USDT" required></div>
             <div class="col-md-4"><label class="form-label">Kline Interval</label><input type="text" class="form-control" name="kline_interval" value="1m" required></div>

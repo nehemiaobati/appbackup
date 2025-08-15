@@ -8,45 +8,20 @@ use PDO;
 use PDOException;
 use Exception;
 use Throwable;
+use App\Services\BotService;
 
 class BotController
 {
     private PDO $pdo;
-    private const PHP_EXECUTABLE_PATH = '/usr/bin/php'; // Defined in original dashboard.php
     private const BOT_SCRIPT_PATH = __DIR__ . '/../../bot.php'; // Defined in original dashboard.php
+    private BotService $botService;
+    private string $phpExecutablePath;
 
     public function __construct()
     {
         $this->pdo = Database::getConnection();
-    }
-
-    /**
-     * Calculates a human-readable "time ago" string.
-     * @param string|null $datetime_str A UTC datetime string.
-     * @return string
-     */
-    private function time_ago(?string $datetime_str): string
-    {
-        if ($datetime_str === null) return 'N/A';
-        try {
-            $now = new \DateTime('now', new \DateTimeZone('UTC'));
-            $ago = new \DateTime($datetime_str, new \DateTimeZone('UTC'));
-            $diff = $now->getTimestamp() - $ago->getTimestamp();
-
-            if ($diff < 60) return 'just now';
-            $d = floor($diff / 86400);
-            $h = floor(($diff % 86400) / 3600);
-            $m = floor(($diff % 3600) / 60);
-
-            $parts = [];
-            if ($d > 0) $parts[] = $d . 'd';
-            if ($h > 0) $parts[] = $h . 'h';
-            if ($m > 0) $parts[] = $m . 'm';
-
-            return implode(' ', $parts) . ' ago';
-        } catch (Exception $e) {
-            return 'N/A';
-        }
+        $this->botService = new BotService();
+        $this->phpExecutablePath = $_ENV['PHP_EXECUTABLE_PATH'] ?? '/usr/bin/php'; // Default to common path if not set
     }
 
     private function checkAuth(): void
@@ -113,20 +88,20 @@ class BotController
             $insert_stmt->execute([
                 ':user_id' => $current_user_id,
                 ':user_api_key_id' => $api_key_id,
-                ':name' => $_POST['name'],
-                ':symbol' => $_POST['symbol'],
-                ':kline_interval' => $_POST['kline_interval'],
-                ':margin_asset' => $_POST['margin_asset'],
-                ':default_leverage' => (int)$_POST['default_leverage'],
-                ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'],
-                ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'],
+                ':name' => trim(htmlspecialchars($_POST['name'] ?? '')),
+                ':symbol' => trim(htmlspecialchars($_POST['symbol'] ?? '')),
+                ':kline_interval' => trim(htmlspecialchars($_POST['kline_interval'] ?? '')),
+                ':margin_asset' => trim(htmlspecialchars($_POST['margin_asset'] ?? '')),
+                ':default_leverage' => (int)($_POST['default_leverage'] ?? 0),
+                ':order_check_interval_seconds' => (int)($_POST['order_check_interval_seconds'] ?? 0),
+                ':ai_update_interval_seconds' => (int)($_POST['ai_update_interval_seconds'] ?? 0),
                 ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0,
-                ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'],
-                ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'],
-                ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'],
-                ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'],
+                ':initial_margin_target_usdt' => (float)($_POST['initial_margin_target_usdt'] ?? 0.0),
+                ':take_profit_target_usdt' => (float)($_POST['take_profit_target_usdt'] ?? 0.0),
+                ':pending_entry_order_cancel_timeout_seconds' => (int)($_POST['pending_entry_order_cancel_timeout_seconds'] ?? 0),
+                ':profit_check_interval_seconds' => (int)($_POST['profit_check_interval_seconds'] ?? 0),
                 ':is_active' => isset($_POST['is_active']) ? 1 : 0,
-                ':quantity_determination_method' => $_POST['quantity_determination_method'],
+                ':quantity_determination_method' => trim(htmlspecialchars($_POST['quantity_determination_method'] ?? '')),
                 ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0
             ]);
             $new_config_id = $this->pdo->lastInsertId();
@@ -175,19 +150,20 @@ class BotController
                     allow_ai_to_update_strategy = :allow_ai_to_update_strategy
                 WHERE id = :id AND user_id = :user_id");
             $update_stmt->execute([
-                ':name' => $_POST['name'], ':symbol' => $_POST['symbol'], 
-                ':kline_interval' => $_POST['kline_interval'], 
-                ':margin_asset' => $_POST['margin_asset'], 
-                ':default_leverage' => (int)$_POST['default_leverage'], 
-                ':order_check_interval_seconds' => (int)$_POST['order_check_interval_seconds'], 
-                ':ai_update_interval_seconds' => (int)$_POST['ai_update_interval_seconds'], 
+                ':name' => trim(htmlspecialchars($_POST['name'] ?? '')), 
+                ':symbol' => trim(htmlspecialchars($_POST['symbol'] ?? '')), 
+                ':kline_interval' => trim(htmlspecialchars($_POST['kline_interval'] ?? '')), 
+                ':margin_asset' => trim(htmlspecialchars($_POST['margin_asset'] ?? '')), 
+                ':default_leverage' => (int)($_POST['default_leverage'] ?? 0), 
+                ':order_check_interval_seconds' => (int)($_POST['order_check_interval_seconds'] ?? 0), 
+                ':ai_update_interval_seconds' => (int)($_POST['ai_update_interval_seconds'] ?? 0), 
                 ':use_testnet' => isset($_POST['use_testnet']) ? 1 : 0, 
-                ':initial_margin_target_usdt' => (float)$_POST['initial_margin_target_usdt'], 
-                ':take_profit_target_usdt' => (float)$_POST['take_profit_target_usdt'], 
-                ':pending_entry_order_cancel_timeout_seconds' => (int)$_POST['pending_entry_order_cancel_timeout_seconds'], 
-                ':profit_check_interval_seconds' => (int)$_POST['profit_check_interval_seconds'], 
+                ':initial_margin_target_usdt' => (float)($_POST['initial_margin_target_usdt'] ?? 0.0), 
+                ':take_profit_target_usdt' => (float)($_POST['take_profit_target_usdt'] ?? 0.0), 
+                ':pending_entry_order_cancel_timeout_seconds' => (int)($_POST['pending_entry_order_cancel_timeout_seconds'] ?? 0), 
+                ':profit_check_interval_seconds' => (int)($_POST['profit_check_interval_seconds'] ?? 0), 
                 ':is_active' => isset($_POST['is_active']) ? 1 : 0, 
-                ':quantity_determination_method' => $_POST['quantity_determination_method'],
+                ':quantity_determination_method' => trim(htmlspecialchars($_POST['quantity_determination_method'] ?? '')),
                 ':allow_ai_to_update_strategy' => isset($_POST['allow_ai_to_update_strategy']) ? 1 : 0,
                 ':id' => $config_id, ':user_id' => $current_user_id
             ]);
@@ -285,74 +261,8 @@ class BotController
         $response = ['status' => 'error', 'message' => 'Invalid action or permission denied.'];
 
         try {
-            session_write_close(); // Release session lock for long-polling API calls.
-
-            // 1. Verify user ownership of the bot config
-            $stmt = $this->pdo->prepare("SELECT * FROM bot_configurations WHERE id = ? AND user_id = ?");
-            $stmt->execute([$config_id, $current_user_id]);
-            $config_data = $stmt->fetch();
-            if (!$config_data) {
-                http_response_code(403);
-                throw new Exception("Configuration not found or permission denied.");
-            }
-
-            // 2. Get runtime status
-            $stmt_status = $this->pdo->prepare("SELECT * FROM bot_runtime_status WHERE bot_config_id = ?");
-            $stmt_status->execute([$config_id]);
-            $bot_status = $stmt_status->fetch();
-            
-            // 3. Get performance summary
-            $stmt_perf = $this->pdo->prepare("
-                SELECT
-                    SUM(realized_pnl_usdt) as total_pnl,
-                    SUM(commission_usdt) as total_commission,
-                    COUNT(internal_id) as trades_executed,
-                    SUM(CASE WHEN realized_pnl_usdt > 0 THEN 1 ELSE 0 END) as winning_trades,
-                    MAX(bot_event_timestamp_utc) as last_trade_time
-                FROM orders_log WHERE bot_config_id = ? AND user_id = ?");
-            $stmt_perf->execute([$config_id, $current_user_id]);
-            $perf_summary = $stmt_perf->fetch();
-
-            // 4. Get recent trades
-            $stmt_trades = $this->pdo->prepare("
-                SELECT symbol, side, price_point, quantity_involved, bot_event_timestamp_utc, realized_pnl_usdt, commission_usdt, reduce_only
-                FROM orders_log WHERE bot_config_id = ? AND user_id = ?
-                ORDER BY bot_event_timestamp_utc DESC LIMIT 10");
-            $stmt_trades->execute([$config_id, $current_user_id]);
-            $recent_trades = $stmt_trades->fetchAll();
-
-            // 5. Get AI Decisions
-            $stmt_ai = $this->pdo->prepare("
-                SELECT log_timestamp_utc, executed_action_by_bot, ai_decision_params_json, bot_feedback_json
-                FROM ai_interactions_log WHERE bot_config_id = ? AND user_id = ?
-                ORDER BY log_timestamp_utc DESC LIMIT 10");
-            $stmt_ai->execute([$config_id, $current_user_id]);
-            $ai_logs = $stmt_ai->fetchAll();
-            
-            // 6. Get Active Strategy
-            $stmt_strategy = $this->pdo->prepare("SELECT * FROM trade_logic_source WHERE user_id = ? AND is_active = TRUE ORDER BY version DESC LIMIT 1");
-            $stmt_strategy->execute([$current_user_id]);
-            $strategy_data = $stmt_strategy->fetch();
-
-            // 7. Calculate derived data
-            $total_profit = (float)($perf_summary['total_pnl'] ?? 0) - (float)($perf_summary['total_commission'] ?? 0);
-            $win_rate = !empty($perf_summary['trades_executed']) ? (($perf_summary['winning_trades'] / $perf_summary['trades_executed']) * 100) : 0;
-            
-            // 8. Assemble the final payload
-            $data_payload = [
-                'statusInfo' => $bot_status ?: ['status' => 'shutdown', 'process_id' => null, 'last_heartbeat' => null, 'error_message' => null],
-                'performance' => [
-                    'totalProfit' => $total_profit,
-                    'tradesExecuted' => (int)($perf_summary['trades_executed'] ?? 0),
-                    'winRate' => $win_rate,
-                    'lastTradeAgo' => $this->time_ago($perf_summary['last_trade_time'])
-                ],
-                'recentTrades' => $recent_trades,
-                'aiLogs' => $ai_logs,
-                'configuration' => $config_data,
-                'strategy' => $strategy_data ?: ['strategy_directives_json' => '{"error": "No active strategy found for this user."}']
-            ];
-            
+            session_write_close();
+            $data_payload = $this->botService->getBotOverview($config_id, $current_user_id);
             $response = ['status' => 'success', 'data' => $data_payload];
         } catch (Throwable $e) {
             if (!headers_sent()) http_response_code(500);
@@ -405,7 +315,7 @@ class BotController
             $stmt->execute([$config_id, $current_user_id]);
             if ($stmt->fetch()) {
                 $manager_script = __DIR__ . '/../../bot_manager.sh';
-                $command = escapeshellcmd($manager_script) . ' start ' . escapeshellarg((string)$config_id);
+                $command = escapeshellcmd($this->phpExecutablePath) . ' ' . escapeshellcmd($manager_script) . ' start ' . escapeshellarg((string)$config_id);
                 $output = shell_exec($command . ' 2>&1'); 
 
                 if (strpos($output, 'SUCCESS') !== false) {
@@ -439,7 +349,7 @@ class BotController
             $stmt->execute([$config_id, $current_user_id]);
             if ($stmt->fetch()) {
                 $manager_script = __DIR__ . '/../../bot_manager.sh';
-                $command = escapeshellcmd($manager_script) . ' stop ' . escapeshellarg((string)$config_id);
+                $command = escapeshellcmd($this->phpExecutablePath) . ' ' . escapeshellcmd($manager_script) . ' stop ' . escapeshellarg((string)$config_id);
                 $output = shell_exec($command . ' 2>&1');
 
                 if (strpos($output, 'ERROR') === false) {

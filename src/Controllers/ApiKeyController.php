@@ -7,39 +7,17 @@ use App\Services\Database;
 use PDO;
 use PDOException;
 use RuntimeException;
+use App\Services\EncryptionService;
 
 class ApiKeyController
 {
     private PDO $pdo;
-    private const ENCRYPTION_CIPHER = 'aes-256-cbc';
+    private EncryptionService $encryptionService;
 
     public function __construct()
     {
         $this->pdo = Database::getConnection();
-    }
-
-    /**
-     * Encrypts data using the APP_ENCRYPTION_KEY from the .env file.
-     * @param string $data The plaintext data to encrypt.
-     * @return string The base64-encoded encrypted data, including the IV.
-     * @throws RuntimeException if encryption fails or the key is missing.
-     */
-    private function encrypt(string $data): string
-    {
-        $key = $_ENV['APP_ENCRYPTION_KEY'] ?? null;
-        if (empty($key)) {
-            throw new RuntimeException("APP_ENCRYPTION_KEY is not set in the .env file.");
-        }
-
-        $ivLength = openssl_cipher_iv_length(self::ENCRYPTION_CIPHER);
-        $iv = openssl_random_pseudo_bytes($ivLength);
-        $encrypted = openssl_encrypt($data, self::ENCRYPTION_CIPHER, $key, OPENSSL_RAW_DATA, $iv);
-
-        if ($encrypted === false) {
-            throw new RuntimeException("Encryption failed. Check OpenSSL configuration.");
-        }
-
-        return base64_encode($iv . $encrypted);
+        $this->encryptionService = new EncryptionService();
     }
 
     public function showApiKeys(): void
@@ -66,7 +44,7 @@ class ApiKeyController
 
         try {
             $current_user_id = $_SESSION['user_id'];
-            $key_name = trim($_POST['key_name'] ?? '');
+            $key_name = trim(htmlspecialchars($_POST['key_name'] ?? ''));
             $binance_key = trim($_POST['binance_api_key'] ?? '');
             $binance_secret = trim($_POST['binance_api_secret'] ?? '');
             $gemini_key = trim($_POST['gemini_api_key'] ?? '');
@@ -76,7 +54,7 @@ class ApiKeyController
             }
 
             $stmt = $this->pdo->prepare("INSERT INTO user_api_keys (user_id, key_name, binance_api_key_encrypted, binance_api_secret_encrypted, gemini_api_key_encrypted) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$current_user_id, $key_name, $this->encrypt($binance_key), $this->encrypt($binance_secret), $this->encrypt($gemini_key)]);
+            $stmt->execute([$current_user_id, $key_name, $this->encryptionService->encrypt($binance_key), $this->encryptionService->encrypt($binance_secret), $this->encryptionService->encrypt($gemini_key)]);
             
             $_SESSION['success_message'] = "API Key set '" . htmlspecialchars($key_name) . "' added successfully!";
             header('Location: /api-keys');
@@ -106,6 +84,11 @@ class ApiKeyController
         try {
             $current_user_id = $_SESSION['user_id'];
             $key_id = (int)($_POST['key_id'] ?? 0);
+            if ($key_id <= 0) {
+                $_SESSION['error_message'] = "Invalid Key ID provided.";
+                header('Location: /api-keys');
+                exit;
+            }
 
             $stmt = $this->pdo->prepare("DELETE FROM user_api_keys WHERE id = ? AND user_id = ?");
             $stmt->execute([$key_id, $current_user_id]);

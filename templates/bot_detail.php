@@ -1,4 +1,4 @@
-<div id="bot-overview-page" data-config-id="<?= $config_data['id'] ?>">
+<div id="bot-overview-page" data-config-id="<?= htmlspecialchars((string)$config_data['id']) ?>">
 <nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/dashboard">Dashboard</a></li><li class="breadcrumb-item active" aria-current="page">Overview: <span id="breadcrumb-bot-name"><?= htmlspecialchars($config_data['name']) ?></span></li></ol></nav>
 <div class="row">
     <div class="col-12">
@@ -112,16 +112,16 @@
                     <div class="card-header"><h5 class="mb-0"><i class="bi bi-sliders"></i> Bot Configuration</h5></div>
                     <div class="card-body">
                         <form id="update-config-form" method="post" action="/api/bots/update-config">
-                            <input type="hidden" name="config_id" value="<?= $config_data['id'] ?>">
+                            <input type="hidden" name="config_id" value="<?= htmlspecialchars((string)$config_data['id']) ?>">
                             <div class="mb-3"><label class="form-label">Config Name</label><input type="text" class="form-control" name="name" value="<?= htmlspecialchars($config_data['name'] ?? '') ?>" required></div>
                             <div class="mb-3"><label class="form-label">Trading Symbol</label><input type="text" class="form-control" name="symbol" value="<?= htmlspecialchars($config_data['symbol'] ?? 'BTCUSDT') ?>" required></div>
                             <div class="mb-3"><label class="form-label">Margin Asset</label><input type="text" class="form-control" name="margin_asset" value="<?= htmlspecialchars($config_data['margin_asset'] ?? 'USDT') ?>" required></div>
                             <div class="mb-3"><label class="form-label">Kline Interval</label><input type="text" class="form-control" name="kline_interval" value="<?= htmlspecialchars($config_data['kline_interval'] ?? '1m') ?>" required></div>
-                            <div class="mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="<?= $config_data['default_leverage'] ?? 10 ?>" required></div>
-                            <div class="mb-3"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="<?= $config_data['ai_update_interval_seconds'] ?? 60 ?>" required></div>
-                            <div class="mb-3"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="<?= $config_data['order_check_interval_seconds'] ?? 45 ?>" required></div>
-                            <div class="mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="<?= $config_data['pending_entry_order_cancel_timeout_seconds'] ?? 60 ?>" required></div>
-                            <div class="mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="<?= $config_data['profit_check_interval_seconds'] ?? 60 ?>" required></div>
+                            <div class="mb-3"><label class="form-label">Default Leverage</label><input type="number" class="form-control" name="default_leverage" value="<?= htmlspecialchars((string)($config_data['default_leverage'] ?? 10)) ?>" required></div>
+                            <div class="mb-3"><label class="form-label">AI Update Interval (s)</label><input type="number" class="form-control" name="ai_update_interval_seconds" value="<?= htmlspecialchars((string)($config_data['ai_update_interval_seconds'] ?? 60)) ?>" required></div>
+                            <div class="mb-3"><label class="form-label">Order Check Interval (s)</label><input type="number" class="form-control" name="order_check_interval_seconds" value="<?= htmlspecialchars((string)($config_data['order_check_interval_seconds'] ?? 45)) ?>" required></div>
+                            <div class="mb-3"><label class="form-label">Pending Order Timeout (s)</label><input type="number" class="form-control" name="pending_entry_order_cancel_timeout_seconds" value="<?= htmlspecialchars((string)($config_data['pending_entry_order_cancel_timeout_seconds'] ?? 60)) ?>" required></div>
+                            <div class="mb-3"><label class="form-label">Profit Check Interval (s)</label><input type="number" class="form-control" name="profit_check_interval_seconds" value="<?= htmlspecialchars((string)($config_data['profit_check_interval_seconds'] ?? 60)) ?>" required></div>
                             <div class="mb-3"><label class="form-label">Initial Margin Target (USDT)</label><input type="text" class="form-control" name="initial_margin_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['initial_margin_target_usdt'], 8), '0'), '.') ?>" required></div>
                             <div class="mb-3"><label class="form-label">Auto Take Profit (USDT)</label><input type="text" class="form-control" name="take_profit_target_usdt" value="<?= rtrim(rtrim(number_format((float)$config_data['take_profit_target_usdt'], 8), '0'), '.') ?>" required></div>
                             <div class="mb-3"><label class="form-label">Quantity Calculation Method</label>
