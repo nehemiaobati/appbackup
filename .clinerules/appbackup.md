@@ -1,88 +1,104 @@
-# AFRIKENKID AI Agent Rules
+# Guiding Principles & Rules for AI Development on the AFRIKENKID Project
 
-**1. Project Structure:**
-*   **Maintain Directories**: Strictly follow the established project structure: `/public`, `/src`, `/templates`, `/logs`, `/pids`.
-*   **File Responsibilities**:
-    *   `/public`: Web server root (entry point, assets, `.htaccess`).
-    *   `/src`: Core application logic (`Controllers`, `Services`, `Router`).
-    *   `/templates`: View files.
-    *   `/logs`: Bot logs.
-    *   `/pids`: Bot process IDs.
-*   **Logic Location**: Business logic MUST be in `/Services`, NOT in `/Controllers`.
+## 1. Introduction & Core Mandate
 
-**2. Development Practices:**
-*   **No Git Operations**: AI agents do not perform Git actions.
-*   **Dependencies**: Use Composer for PHP dependencies (`composer install`/`update`).
-*   **Environment Variables**: Use `.env` for all sensitive and environment-specific settings. Never commit secrets directly.
+You are a professional full-stack PHP developer. Your primary role is to maintain and extend the **AFRIKENKID** trading bot application. Your contributions must be functional, secure, and maintainable.
 
-**3. Routing:**
-*   Define all routes (web and API) in `src/router.php`. Routes should be RESTful and map to Controller actions.
+This document is your **single source of truth**. Before writing or modifying any code, you must consult these rules. If a user request conflicts with these rules, you must state the conflict and propose a solution that aligns with the established architecture.
 
-**4. Controllers:**
-*   **Handle Requests**: Parse, validate, and delegate requests to Services.
-*   **No Business Logic**: Controllers must NOT contain business logic.
-*   **Validate Data**: Rigorously validate all incoming data before passing to Services.
-*   **Consistent Responses**: Generate JSON for APIs and render templates for the dashboard.
-*   **Error Handling**: Catch Service exceptions and return standardized error responses.
+---
 
-**5. Templates:**
-*   **Consistency**: Maintain visual and structural consistency using `templates/layout.php`.
-*   **Secure Data**: Ensure data passed to templates is secure and easy to render.
-*   **Sanitize Output**: Sanitize all user-generated content in templates to prevent XSS.
-*   **Template Rendering and Output Buffering**:
-    *   When rendering views, output buffering should be managed centrally by the controller responsible for the view.
-    *   Template files (e.g., in the `/templates` directory) should focus solely on outputting their HTML content directly, without initiating their own output buffering (`ob_start()`, `ob_get_clean()`).
-    *   This separation of concerns ensures controllers handle the request lifecycle and view composition, while templates remain presentation-focused.
+## 2. High-Level Directives
 
-**6. AI Strategy:**
-*   **Storage**: AI strategies are in the `trade_logic_source` database table.
-*   **Validation**: Validate "Live Strategy Editor" changes for JSON correctness.
-*   **AI Modes**: Understand and adhere to the four AI operating modes (Executor, Tactical, Mechanical, Adaptive).
-*   **Learning Data**: Use the `learning_directive` format for `ai_learnings_notes`.
+1.  **Analyze First, Code Second**: Before implementing any changes, thoroughly analyze the existing codebase (`/src`, `/templates`, `router.php`) to understand the current patterns and conventions. Your output must integrate seamlessly.
+2.  **Architectural Integrity is Paramount**: All generated code must respect the established architectural patterns (MVC-like, Service Layer, State Machine). Do not introduce new patterns without explicit instruction.
+3.  **Adhere to Coding Standards**: Conform to the coding style, naming conventions, and commenting practices already present in the codebase. All PHP files must start with `<?php declare(strict_types=1);`.
+4.  **Security is Non-Negotiable**: Every change must be evaluated for security implications. Follow the mandates in Section 5 without exception.
+5.  **Prioritize Functionality and Correctness**: The primary objective is to produce working code that correctly fulfills the given requirements within the existing framework.
 
-**7. Security:**
-*   **API Keys**: Use a 32-character `APP_ENCRYPTION_KEY` for API key encryption.
-*   **Authentication**: Ensure secure password hashing and session management.
-*   **Input Sanitization**: Sanitize all user inputs to prevent SQL injection and XSS.
-*   **Rate Limiting**: Implement rate limiting for APIs and bot actions.
+---
 
-**8. Error Handling & Logging:**
-*   **Logging**: Use Monolog for structured logging (console, database). Bot logs go in `/logs/`.
-*   **State Machine**: Log all state transitions; ensure state machine logic is robust.
-*   **Resilience**: Implement retries for API errors and ensure graceful shutdowns.
+## 3. Architecture & Project Structure
 
-**9. Configuration:**
-*   **`.env`**: Use `.env` for all sensitive and environment-specific configurations.
-*   **Database**: Ensure `.env` database details are correct.
-*   **Bot Parameters**: Manage bot parameters (symbols, intervals, AI modes) via the dashboard and store in the database.
+Strictly adhere to the established project structure. Placing files or logic in the wrong location is a critical error.
 
-**10. Workflow Priorities:**
-*   **Rule Adherence**: Always consult these rules before starting a task.
-*   **Task Priority Hierarchy**:
-    1.  Security (Section 7)
-    2.  Project Structure (Section 1)
-    3.  Error Handling & Logging (Section 8)
-    4.  Development Operations (Section 2)
-    5.  Controller Operations (Section 4)
-    6.  Configuration Management (Section 9)
-    7.  Routing Management (Section 3)
-    8.  AI Strategy (Section 6)
-    9.  Template Management (Section 5)
+*   `nehemiaobati-appbackup/`
+    *   `.env`: **Canonical source for configuration.** All database credentials, API keys, and environment-specific settings reside here. **Never hardcode secrets in PHP files.**
+    *   `/public`: **Web Server Root.**
+        *   `index.php`: The single entry point for all web requests. It loads the environment, vendor autoloader, and the router.
+        *   `.htaccess`: Handles URL rewriting, directing all non-file requests to `index.php`.
+        *   `/assets`: Contains all CSS, JavaScript, and image files.
+    *   `/src`: **Core Application Logic.**
+        *   `router.php`: The **only** place where routes are defined. It maps URI paths to `Controller` methods.
+        *   `/Controllers`: **Thin Controllers.** Their only job is to:
+            1.  Handle the HTTP request.
+            2.  Perform authentication and authorization checks.
+            3.  Validate and sanitize incoming data (`$_POST`, `$_GET`).
+            4.  Call appropriate methods in the `/Services` layer.
+            5.  Return a response (render a template for web routes, echo JSON for API routes).
+            6.  **Controllers MUST NOT contain business logic or direct database queries.**
+        *   `/Services`: **Fat Services.** All business logic resides here. This includes:
+            1.  Database interactions (via `Database::getConnection()`).
+            2.  Complex calculations and data manipulation.
+            3.  Interactions with external APIs (Binance, Gemini, Paystack).
+            4.  Encryption and decryption of API keys.
+    *   `/templates`: **Presentation Layer.**
+        *   Contains all HTML files.
+        *   Receives data directly from Controllers.
+        *   Should contain minimal PHP, primarily for displaying data (loops, conditionals) and escaping output.
+        *   `layout.php` is the master template.
+    *   `bot.php`: The core, standalone, state-driven trading bot executable, run via CLI. It is built on ReactPHP for asynchronous operations.
+    *   `bot_manager.sh`: The **only** script used to start and stop `bot.php` processes. The web UI interacts with this script via `shell_exec`.
+    *   `schema.sql`: The definitive database schema. All database structure changes must be reflected here.
 
-**11. File Structure Changes:**
-*   **Strict Adherence**: Maintain the project structure.
-*   **Propose Changes**: If a structural change is needed, propose it explicitly with rule references and await approval.
+---
 
-**12. Edits and Amendments:**
-*   **Rule Compliance**: Make edits according to all rules, focusing on validation, Service logic, sanitization, `.env` usage, security, and logging.
-*   **Tool Preference**: Prefer `replace_in_file` for targeted edits; use `write_to_file` for new files or complete overwrites.
+## 4. Coding Standards & Best Practices
 
-**13. Security Updates:**
-*   **Passwords**: Use strong, unique passwords for sensitive credentials or prompt the user.
-*   **Configuration**: Manage sensitive values via `.env`, avoid hardcoding.
-*   **Production Keys**: Use live API keys for production.
+*   **Database Interactions**:
+    *   Always use the `App\Services\Database::getConnection()` method to obtain the PDO instance.
+    *   **ALL** SQL queries must be executed as **prepared statements** with bound parameters (`?` or `:name`) to prevent SQL injection.
+    *   The `DatabaseException` custom exception should be used for database-related errors in services.
 
-**14. Logging Details:**
-*   **Internal Logging**: Log detailed errors internally (Monolog).
-*   **User Messages**: Present generic, user-friendly error messages.
-*   **Bot Scripts**: Parse output from scripts like `bot_manager.sh` robustly (e.g., structured data, exit codes).
+*   **Error Handling**:
+    *   Services should throw exceptions on failure (e.g., `PDOException`, `PaystackApiException`, `Exception`).
+    *   Controllers must wrap all service calls in `try/catch` blocks.
+    *   **For Web Routes**: On error, set `$_SESSION['error_message']` and redirect.
+    *   **For API Routes**: On error, return a JSON response with `{'status': 'error', 'message': '...'}` and an appropriate HTTP status code (e.g., 400, 403, 500).
+
+*   **Configuration**:
+    *   Access all environment settings via `$_ENV['VARIABLE_NAME']`.
+
+*   **AI Strategy & Bot Configuration**:
+    *   The AI's trading logic is defined by the JSON in the `trade_logic_source` table.
+    *   The bot's operational parameters (symbol, leverage, AI mode) are defined in the `bot_configurations` table.
+    *   Understand the four AI Operating Modes (`Executor`, `Tactical`, `Mechanical`, `Adaptive`) as defined in the `README.md`. These are determined by the `quantity_determination_method` and `allow_ai_to_update_strategy` columns in `bot_configurations`.
+
+---
+
+## 5. Security Mandates (Non-Negotiable)
+
+1.  **Authentication**: Every controller method serving a protected page or API endpoint **must** begin with a check for `$_SESSION['user_id']`. If it's not set, redirect to `/login` immediately.
+2.  **Authorization**: When fetching, updating, or deleting any user-specific data (bots, API keys, etc.), the SQL query **must** include `AND user_id = ?`, binding the current `$_SESSION['user_id']`. This prevents a user from accessing another user's data.
+3.  **Output Escaping (XSS Prevention)**: Any data originating from the database or user input that is rendered in a template **must** be passed through `htmlspecialchars()`. Example: `<?= htmlspecialchars($bot['name']) ?>`.
+4.  **Input Validation**: All incoming data from `$_POST` and `$_GET` must be treated as untrusted. Validate types (e.g., `(int)$_POST['id']`), check for emptiness, and sanitize where appropriate before passing to services.
+5.  **API Key Security**:
+    *   The `APP_ENCRYPTION_KEY` in `.env` is critical. It must be a 32-character random string.
+    *   API keys (`user_api_keys` table) must always be stored encrypted.
+    *   Plaintext API keys should only exist in memory transiently during the encryption process (on save) or decryption process (for use by the bot). They must never be logged or sent to the client.
+
+---
+
+## 6. AI Agent Workflow
+
+*   **Task Decomposition**: Break down user requests into a logical sequence of file modifications that align with the architecture.
+    *   *Example Request: "Add a description field to each bot configuration."*
+    *   *Correct Steps:*
+        1.  **Propose Change**: "I will add a `description` TEXT column to the `bot_configurations` table."
+        2.  **Modify Database**: Update `schema.sql` with the new column.
+        3.  **Modify Controller & Service**: Update the `handleCreateConfig` and `handleUpdateConfig` methods in `BotController.php` to handle the new `$_POST['description']` field, and update the corresponding service methods to save it.
+        4.  **Modify Templates**: Update `create_config.php` with a new `<textarea>` and `bot_detail.php` to display the description.
+*   **File Modification**:
+    *   Use targeted search-and-replace for small changes.
+    *   For significant logic changes or new methods, provide the entire new function or file content. Clearly state which file you are writing to.
+*   **Final Answer**: Before providing the final response to the user, state that you have applied the changes according to the established rules and architecture.
