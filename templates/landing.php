@@ -88,7 +88,7 @@ $current_user_id = $_SESSION['user_id'] ?? null;
                 <h5 class="mb-3">Contact Information</h5>
                 <p><i class="bi bi-geo-alt-fill text-primary"></i> 123 AI Street, Innovation City, CA 90210</p>
                 <p><i class="bi bi-envelope-fill text-primary"></i> support@afrikenkid.com</p>
-                <p><i class="bi bi-telephone-fill text-primary"></i> +1 (555) 123-4567</p>
+                <p><i class="bi bi-telephone-fill text-primary"></i> +254 794587533</p>
                 <div class="mt-4">
                     <a href="#" class="btn btn-outline-dark me-2"><i class="bi bi-linkedin"></i></a>
                     <a href="#" class="btn btn-outline-dark me-2"><i class="bi bi-twitter"></i></a>
