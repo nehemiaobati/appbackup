@@ -9,6 +9,7 @@ use PDOException;
 use Exception;
 use Throwable;
 use App\Services\BotService;
+use App\Controllers\PaystackController; // Added import for PaystackController
 
 class BotController
 {
@@ -32,10 +33,41 @@ class BotController
         }
     }
 
-    public function showDashboard(): void
+    /**
+     * Renders the dashboard page, including bot configurations and user balance.
+     *
+     * @return void
+     */
+    public function dashboard(): void
     {
-        $this->checkAuth();
-        $this->render('dashboard');
+        $this->checkAuth(); // Ensure user is logged in
+
+        // Instantiate PaystackController to get the balance
+        $paystackController = new PaystackController();
+        $totalBalanceInCents = null; // Initialize to null
+        $balanceErrorMessage = null;
+
+        try {
+            $totalBalanceInCents = $paystackController->getTotalSuccessfulBalance();
+            // Formatting can be done in the template or here if preferred.
+            // For now, passing the raw cents value.
+        } catch (\Exception $e) {
+            // Handle potential errors in balance calculation
+            $balanceErrorMessage = "Could not retrieve balance: " . $e->getMessage();
+            // Optionally log the error
+            error_log("Dashboard balance retrieval error: " . $e->getMessage());
+        }
+
+        // Data to be passed to the dashboard template
+        $data = [
+            'username' => $_SESSION['username'] ?? 'User',
+            'balance' => $totalBalanceInCents, // Pass the balance to the template
+            'balance_error_message' => $balanceErrorMessage, // Pass error message if any
+            'view' => 'dashboard' // For layout highlighting
+        ];
+
+        // Render the dashboard template
+        $this->render('dashboard', $data);
     }
 
     public function showBotDetails(int $config_id): void

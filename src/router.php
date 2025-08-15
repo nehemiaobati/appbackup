@@ -144,20 +144,15 @@ if (str_starts_with($path, '/api/')) {
  * These routes render HTML pages for the user interface.
  */
 switch ($path) {
-    // Redirect root path to dashboard
+    // Redirect root path to landing page
     case '':
     case '/':
-        // For the landing page, we don't redirect to dashboard.
-        // Instead, we call a method to show the landing page.
-        // This assumes AuthController will be extended to include showLandingPage()
-        // or a new HomeController will be created. For now, let's assume AuthController.
-        $authController = new AuthController(); // Re-instantiate if not already done in this scope
         $authController->showLandingPage();
         exit;
 
-    // GET /dashboard - Displays the main dashboard page.
+    // GET /dashboard - Displays the main dashboard page, including bot configurations and user balance.
     case '/dashboard':
-        $botController->showDashboard();
+        $botController->dashboard(); // Changed to call BotController's dashboard method
         break;
 
     // /login - Handles user login.

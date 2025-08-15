@@ -20,11 +20,22 @@ class AuthController
 
     public function showLogin(): void
     {
+        // If the user is already logged in, redirect them to the dashboard.
+        if (isset($_SESSION['user_id'])) {
+            header('Location: /dashboard');
+            exit;
+        }
         $this->render('login');
     }
 
     public function handleLogin(): void
     {
+        // Check if the user is already logged in
+        if (isset($_SESSION['user_id'])) {
+            header('Location: /dashboard');
+            exit;
+        }
+
         $username = trim(htmlspecialchars($_POST['username'] ?? ''));
         $password = $_POST['password'] ?? '';
         $recaptchaResponse = $_POST['g-recaptcha-response'] ?? '';
@@ -139,6 +150,9 @@ class AuthController
         header('Location: /login');
         exit;
     }
+
+    // Removed the dashboard method as per user request to move balance logic to BotController.
+    // The /dashboard route will now be handled by BotController.
 
     private function render(string $template, array $data = []): void
     {
