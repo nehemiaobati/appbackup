@@ -472,7 +472,7 @@ class BotController
             if ($stmt->fetch()) {
                 $manager_script = __DIR__ . '/../../bot_manager.sh';
                 // Construct and execute the shell command to start the bot.
-                $command = escapeshellcmd($this->phpExecutablePath) . ' ' . escapeshellcmd($manager_script) . ' start ' . escapeshellarg((string)$config_id);
+                $command = escapeshellcmd($manager_script) . ' start ' . escapeshellarg((string)$config_id);
                 $output = shell_exec($command . ' 2>&1'); // Capture both stdout and stderr.
 
                 if (strpos($output, 'SUCCESS') !== false) {
@@ -517,7 +517,7 @@ class BotController
             if ($stmt->fetch()) {
                 $manager_script = __DIR__ . '/../../bot_manager.sh';
                 // Construct and execute the shell command to stop the bot.
-                $command = escapeshellcmd($this->phpExecutablePath) . ' ' . escapeshellcmd($manager_script) . ' stop ' . escapeshellarg((string)$config_id);
+                $command = escapeshellcmd($manager_script) . ' stop ' . escapeshellarg((string)$config_id);
                 $output = shell_exec($command . ' 2>&1'); // Capture both stdout and stderr.
 
                 if (strpos($output, 'ERROR') === false) {
