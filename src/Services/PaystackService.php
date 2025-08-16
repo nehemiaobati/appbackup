@@ -120,7 +120,7 @@ class PaystackService
             "amount" => $amountInKobo,
             "currency" => "KES",
             "callback_url" => $callbackUrl,
-            "channels" => ["mobile_money", "bank"], // Specify preferred payment channels.
+            "channels" => ["mobile_money", "bank", "card"], // Specify preferred payment channels.
             "metadata" => array_merge($metadata, ['reference' => $reference]), // Ensure reference is in metadata.
             "reference" => $reference // Also include reference directly in payload for Paystack.
         ];
