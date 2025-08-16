@@ -7,7 +7,7 @@
             <?php elseif ($balance_error_message): ?>
                 <span class="text-danger"><?= htmlspecialchars($balance_error_message) ?></span>
             <?php else: ?>
-                Your Total Successful Balance: <strong>Loading...</strong>
+                Your Total Balance: <strong>Loading...</strong>
             <?php endif; ?>
         </p>
     </div>

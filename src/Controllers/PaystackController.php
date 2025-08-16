@@ -101,6 +101,7 @@ class PaystackController
 
     /**
      * Verifies a Paystack payment using the transaction reference.
+     * Updates the user's balance upon successful verification.
      *
      * @return void
      */
@@ -120,6 +121,20 @@ class PaystackController
 
             // Check if the payment verification was successful
             if ($data['status'] === 'success') {
+                // Update user's balance
+                $userId = $_SESSION['user_id'] ?? null; // Reverted to using session user ID
+
+                if ($userId && isset($data['amount']) && isset($data['fees'])) {
+                    $amount = $data['amount']; // Amount in cents
+                    $fees = $data['fees'];     // Fees in cents
+                    $netAmountInCents = $amount - $fees;
+
+                    // Update user's balance in the database
+                    $db = Database::getConnection();
+                    $stmt = $db->prepare("UPDATE users SET balance_cents = balance_cents + ? WHERE id = ?");
+                    $stmt->execute([$netAmountInCents, $userId]);
+                }
+
                 $this->redirectWithStatus('success', 'Payment verified successfully! Reference: ' . $reference);
             } else {
                 // Handle failed payment verification
@@ -137,56 +152,7 @@ class PaystackController
         }
     }
 
-    /**
-     * Calculates the total successful balance, accounting for fees.
-     * Currency is in cents.
-     *
-     * @return int The total successful balance in cents.
-     * @throws DatabaseException If there's an error accessing the database.
-     * @throws \Exception If there's an error processing transaction data.
-     */
-    public function getTotalSuccessfulBalance(): int
-    {
-        // Ensure Database service is available
-        if (!class_exists('\App\Services\Database')) {
-            throw new \Exception('Database service not found.');
-        }
-        $db = Database::getConnection(); // Use static getConnection()
-
-        $totalBalanceInCents = 0;
-
-        try {
-            // Prepare and execute the query to get successful transactions
-            $stmt = $db->prepare("SELECT paystack_response_at_verification FROM paystack_transactions WHERE status = 'success'");
-            $stmt->execute();
-            $transactions = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-
-            foreach ($transactions as $transaction) {
-                $response = json_decode($transaction['paystack_response_at_verification'], true);
-
-                // Check if JSON decoding was successful and if amount and fees exist
-                if ($response && isset($response['data']['amount']) && isset($response['data']['fees'])) {
-                    $amount = $response['data']['amount']; // Amount in cents
-                    $fees = $response['data']['fees'];     // Fees in cents
-
-                    // Calculate net amount for this transaction
-                    $netAmountInCents = $amount - $fees;
-
-                    // Add to total balance
-                    $totalBalanceInCents += $netAmountInCents;
-                }
-            }
-        } catch (\PDOException $e) {
-            // Log or handle database errors appropriately
-            throw new DatabaseException("Error fetching transaction data: " . $e->getMessage());
-        } catch (\Exception $e) {
-            // Catch other potential errors like JSON decoding issues
-            throw new \Exception("Error processing transaction data: " . $e->getMessage());
-        }
-
-        return $totalBalanceInCents;
-    }
-
+    // The getTotalSuccessfulBalance method has been removed as per user request.
 
     /**
      * Redirects to a specified path with a status message stored in session.

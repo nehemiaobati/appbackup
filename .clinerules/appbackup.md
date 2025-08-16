@@ -74,6 +74,11 @@ Strictly adhere to the established project structure. Placing files or logic in 
     *   The bot's operational parameters (symbol, leverage, AI mode) are defined in the `bot_configurations` table.
     *   Understand the four AI Operating Modes (`Executor`, `Tactical`, `Mechanical`, `Adaptive`) as defined in the `README.md`. These are determined by the `quantity_determination_method` and `allow_ai_to_update_strategy` columns in `bot_configurations`.
 
+*   **Comment Maintenance**:
+    *   Comments must always be kept up-to-date with the code they describe. Outdated or misleading comments should be corrected or removed.
+    *   Prioritize commenting on *why* a piece of code exists or *why* a particular approach was chosen, rather than simply restating *what* the code does (which should be clear from the code itself).
+    *   Complex algorithms, non-obvious logic, and workarounds should be thoroughly documented.
+
 ---
 
 ## 5. Security Mandates (Non-Negotiable)
