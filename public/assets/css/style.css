@@ -21,6 +21,28 @@ body { background-color: #f0f2f5; }
     flex-direction: column; 
     height: 100%; 
 } 
-.bot-card .card-body { 
-    flex-grow: 1; 
+.bot-card .card-body {
+    flex-grow: 1;
+}
+
+@media (max-width: 767.98px) { /* Small devices (phones, less than 768px) */
+    .landing-buttons {
+        display: flex;
+        flex-direction: column;
+        align-items: center; /* Center buttons horizontally */
+    }
+    .landing-buttons .btn {
+        width: 100%; /* Make buttons take full width */
+        margin-right: 0 !important; /* Override Bootstrap's me-2 */
+        margin-bottom: 0.5rem; /* Add vertical spacing */
+    }
+    .landing-buttons .btn:last-child {
+        margin-bottom: 0; /* No margin for the last button */
+    }
+}
+
+@media (min-width: 768px) { /* Medium and larger devices */
+    .landing-buttons .btn:not(:last-child) {
+        margin-right: 0.5rem; /* Add consistent right margin */
+    }
 }

@@ -15,10 +15,10 @@ $current_user_id = $_SESSION['user_id'] ?? null;
         <h1>Welcome to AFRIKENKID</h1>
         <p class="lead">Your ultimate solution for managing and deploying AI-powered bots.</p>
         <p>Discover how our platform can help you automate tasks, optimize strategies, and achieve your goals.</p>
-        <div class="mt-4">
-            <a href="#features" class="btn btn-primary btn-lg me-2"><i class="bi bi-star-fill"></i> Features</a>
+        <div class="mt-4 landing-buttons">
+            <a href="#features" class="btn btn-primary btn-lg"><i class="bi bi-star-fill"></i> Features</a>
             <a href="#contact" class="btn btn-outline-secondary btn-lg"><i class="bi bi-envelope-fill"></i> Contact Us</a>
-            <a href="/login" class="btn btn-outline-success btn-lg me-2"><i class="bi bi-box-arrow-in-right"></i> Login</a>
+            <a href="/login" class="btn btn-outline-success btn-lg"><i class="bi bi-box-arrow-in-right"></i> Login</a>
             <a href="/register" class="btn btn-outline-info btn-lg"><i class="bi bi-person-plus-fill"></i> Register</a>
         </div>
     </section>
