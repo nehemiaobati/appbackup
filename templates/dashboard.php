@@ -3,7 +3,7 @@
         <h5 class="card-title"><i class="bi bi-person-circle"></i> Welcome, <?= htmlspecialchars($username ?? 'User') ?>!</h5>
         <p class="card-text">
             <?php if ($balance !== null): ?>
-                Your Total Successful Balance: <strong><?= number_format($balance / 100, 2) ?> KES</strong>
+                Your Total Balance: <strong><?= number_format($balance / 100, 2) ?> KES</strong>
             <?php elseif ($balance_error_message): ?>
                 <span class="text-danger"><?= htmlspecialchars($balance_error_message) ?></span>
             <?php else: ?>
