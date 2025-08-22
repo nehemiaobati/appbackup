@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\Database;
 use PDO;
 use PDOException;
 use Exception;
@@ -21,9 +20,8 @@ use App\Services\BotService;
  * commands to manage the `bot.php` process.
  */
 
-class BotController
+class BotController extends BaseController
 {
-    private PDO $pdo;
     private const BOT_SCRIPT_PATH = __DIR__ . '/../../bot.php';
     private BotService $botService;
     private string $phpExecutablePath;
@@ -35,24 +33,10 @@ class BotController
      */
     public function __construct()
     {
-        $this->pdo = Database::getConnection();
+        parent::__construct(); // Call parent constructor to initialize PDO
         $this->botService = new BotService();
         // Retrieve PHP executable path from .env, defaulting to a common path.
         $this->phpExecutablePath = $_ENV['PHP_EXECUTABLE_PATH'] ?? '/usr/bin/php';
-    }
-
-    /**
-     * Ensures the user is authenticated.
-     * If not logged in, redirects to the login page.
-     *
-     * @return void
-     */
-    private function checkAuth(): void
-    {
-        if (!isset($_SESSION['user_id'])) {
-            header('Location: /login');
-            exit;
-        }
     }
 
     /**
@@ -538,26 +522,5 @@ class BotController
         header('Content-Type: application/json');
         echo json_encode($response);
         exit;
-    }
-
-    /**
-     * Renders a specified template, injecting common layout variables.
-     * This private helper method ensures consistent page rendering.
-     *
-     * @param string $template The name of the template file (e.g., 'dashboard', 'bot_detail').
-     * @param array $data An associative array of data to extract and make available to the template.
-     * @return void
-     */
-    private function render(string $template, array $data = []): void
-    {
-        extract($data); // Extract data array into individual variables for the template.
-        $current_user_id = $_SESSION['user_id'] ?? null;
-        $username_for_header = $_SESSION['username'] ?? null;
-        $view = $template; // Used by layout.php to highlight the active navigation item.
-
-        ob_start(); // Start output buffering to capture template content.
-        require __DIR__ . "/../../templates/{$template}.php"; // Include the specific template.
-        $content = ob_get_clean(); // Get the buffered content.
-        require __DIR__ . "/../../templates/layout.php"; // Include the main layout.
     }
 }

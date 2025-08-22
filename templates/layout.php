@@ -1,3 +1,8 @@
+<?php
+// Initialize balance variables to prevent "Undefined variable" notices
+$balance = $balance ?? null;
+$balance_error_message = $balance_error_message ?? '';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,6 +23,11 @@
         <?php if (isset($current_user_id)): ?>
             <div class="d-flex flex-column flex-md-row align-items-md-center">
                 <span class="mb-2 mb-md-0 me-md-3">User: <strong><?= htmlspecialchars($username_for_header) ?></strong></span>
+                <?php if ($balance !== null): ?>
+                    <span class="mb-2 mb-md-0 me-md-3">Balance: <strong><?= number_format($balance / 100, 2) ?> KES</strong></span>
+                <?php elseif ($balance_error_message): ?>
+                    <span class="text-danger mb-2 mb-md-0 me-md-3"><?= htmlspecialchars($balance_error_message) ?></span>
+                <?php endif; ?>
                 <a href="/logout" class="btn btn-outline-light"><i class="bi bi-box-arrow-right"></i> Logout</a>
             </div>
         <?php endif; ?>

@@ -30,13 +30,13 @@ Strictly adhere to the established project structure. Placing files or logic in 
         *   `/assets`: Contains all CSS, JavaScript, and image files.
     *   `/src`: **Core Application Logic.**
         *   `router.php`: The **only** place where routes are defined. It maps URI paths to `Controller` methods.
-        *   `/Controllers`: **Thin Controllers.** Their only job is to:
-            1.  Handle the HTTP request.
-            2.  Perform authentication and authorization checks.
-            3.  Validate and sanitize incoming data (`$_POST`, `$_GET`).
-            4.  Call appropriate methods in the `/Services` layer.
-            5.  Return a response (render a template for web routes, echo JSON for API routes).
-            6.  **Controllers MUST NOT contain business logic or direct database queries.**
+*   `/Controllers`: **Thin Controllers.** **Includes `BaseController.php` which provides common functionalities.** Their only job is to:
+    1.  Handle the HTTP request.
+    2.  Perform authentication and authorization checks. **(Often handled by `BaseController::checkAuth()`)**
+    3.  Validate and sanitize incoming data (`$_POST`, `$_GET`).
+    4.  Call appropriate methods in the `/Services` layer.
+    5.  Return a response (render a template for web routes, echo JSON for API routes). **(Web route rendering often handled by `BaseController::render()`)**
+    6.  **Controllers MUST NOT contain business logic or direct database queries.**
         *   `/Services`: **Fat Services.** All business logic resides here. This includes:
             1.  Database interactions (via `Database::getConnection()`).
             2.  Complex calculations and data manipulation.
@@ -63,8 +63,8 @@ Strictly adhere to the established project structure. Placing files or logic in 
 *   **Error Handling**:
     *   Services should throw exceptions on failure (e.g., `PDOException`, `PaystackApiException`, `Exception`).
     *   Controllers must wrap all service calls in `try/catch` blocks.
-    *   **For Web Routes**: On error, set `$_SESSION['error_message']` and redirect.
-    *   **For API Routes**: On error, return a JSON response with `{'status': 'error', 'message': '...'}` and an appropriate HTTP status code (e.g., 400, 403, 500).
+    *   **For Web Routes**: On error, set `$_SESSION['error_message']` and redirect. **Common authentication checks are handled by `BaseController::checkAuth()` which redirects on failure.**
+    *   **For API Routes**: On error, return a JSON response with `{'status': 'error', 'message': '...'}` and an appropriate HTTP status code (e.g., 400, 403, 500). **API routing in `router.php` now includes a centralized `try/catch` block for general API errors.**
 
 *   **Configuration**:
     *   Access all environment settings via `$_ENV['VARIABLE_NAME']`.

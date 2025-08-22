@@ -3,29 +3,23 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\Database;
-use PDO;
 use PDOException;
 use RuntimeException;
 use App\Services\EncryptionService;
 
-class ApiKeyController
+class ApiKeyController extends BaseController
 {
-    private PDO $pdo;
     private EncryptionService $encryptionService;
 
     public function __construct()
     {
-        $this->pdo = Database::getConnection();
+        parent::__construct(); // Call parent constructor to initialize PDO
         $this->encryptionService = new EncryptionService();
     }
 
     public function showApiKeys(): void
     {
-        if (!isset($_SESSION['user_id'])) {
-            header('Location: /login');
-            exit;
-        }
+        $this->checkAuth(); // Use checkAuth from BaseController
 
         $current_user_id = $_SESSION['user_id'];
         $stmt = $this->pdo->prepare("SELECT id, key_name, is_active, created_at FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC");
@@ -105,18 +99,5 @@ class ApiKeyController
             header('Location: /api-keys');
             exit;
         }
-    }
-
-    private function render(string $template, array $data = []): void
-    {
-        extract($data);
-        $current_user_id = $_SESSION['user_id'] ?? null;
-        $username_for_header = $_SESSION['username'] ?? null;
-        $view = $template; // For layout.php to know which nav item to highlight
-
-        ob_start();
-        require __DIR__ . "/../../templates/{$template}.php";
-        $content = ob_get_clean();
-        require __DIR__ . "/../../templates/layout.php";
     }
 }

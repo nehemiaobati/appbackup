@@ -44,7 +44,7 @@ $botController = new BotController();
 $apiKeyController = new ApiKeyController();
 $contactController = new ContactController();
 $resumeController = new ResumeController();
-$paystackController = new PaystackController();
+$paystackController = new PaystackController(); // Keep PaystackController for its web routes
 
 /**
  * API Routes (JSON responses)
@@ -52,138 +52,57 @@ $paystackController = new PaystackController();
  * return JSON data, typically for AJAX requests from the frontend.
  * Responses include a 'status' and 'message' or 'data' payload.
  */
-if (str_starts_with($path, '/api/')) {
-    header('Content-Type: application/json'); // Ensure JSON response header is set
+$apiRoutes = [
+    'bots/overview' => ['GET', [$botController, 'getBotOverviewApi']],
+    'bots/statuses' => ['GET', [$botController, 'getBotStatusesApi']],
+    'bots/start' => ['POST', [$botController, 'startBotApi']],
+    'bots/stop' => ['POST', [$botController, 'stopBotApi']],
+    'bots/delete' => ['POST', [$botController, 'handleDeleteConfig']],
+    'bots/update-config' => ['POST', [$botController, 'handleUpdateConfig']],
+    'bots/update-strategy' => ['POST', [$botController, 'handleUpdateStrategy']],
+];
 
-    // Extract the specific API action from the path (e.g., 'bots/overview' from '/api/bots/overview')
+if (str_starts_with($path, '/api/')) {
+    header('Content-Type: application/json');
     $api_action = substr($path, strlen('/api'));
     $api_action = trim($api_action, '/');
 
     try {
-        switch ($api_action) {
-            /**
-             * GET /api/bots/overview
-             * Retrieves a detailed overview of a specific bot configuration and its performance.
-             *
-             * @param int $_GET['id'] The ID of the bot configuration to retrieve.
-             * @return JSON A JSON object containing bot status, performance summary, recent trades, AI logs, and configuration details.
-             * @throws Exception If configuration is not found or user lacks permission.
-             */
-            case 'bots/overview':
-                $config_id = (int)($_GET['id'] ?? 0);
-                $botController->getBotOverviewApi($config_id);
-                break;
+        $matched = false;
+        foreach ($apiRoutes as $route_pattern => $route_config) {
+            list($allowed_method, $controller_method) = $route_config;
 
-            /**
-             * GET /api/bots/statuses
-             * Retrieves the current runtime statuses of all active bots for the logged-in user.
-             *
-             * @return JSON A JSON object containing an array of bot statuses, including ID, name, symbol, and total profit.
-             */
-            case 'bots/statuses':
-                $botController->getBotStatusesApi();
-                break;
-
-            /**
-             * POST /api/bots/start
-             * Initiates the start process for a specific bot configuration.
-             *
-             * @param int $_POST['config_id'] The ID of the bot configuration to start.
-             * @return JSON A JSON object indicating success or failure of the start command.
-             * @throws Exception If the bot is inactive or user lacks permission.
-             */
-            case 'bots/start':
-                if ($method === 'POST') {
-                    $botController->startBotApi();
-                } else {
-                    http_response_code(405); // Method Not Allowed
-                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+            // Handle dynamic API routes like /api/bots/{id}/something
+            if (strpos($route_pattern, '{id}') !== false) {
+                $regex_pattern = str_replace('{id}', '(\d+)', $route_pattern);
+                if (preg_match('#^' . $regex_pattern . '$#', $api_action, $matches)) {
+                    if ($method === $allowed_method) {
+                        $matched = true;
+                        // Assuming dynamic routes pass ID as the first argument to the controller method
+                        // This needs to be adjusted based on how your controller methods expect parameters
+                        call_user_func($controller_method, (int)$matches[1]);
+                        break;
+                    }
                 }
-                break;
-
-            /**
-             * POST /api/bots/stop
-             * Initiates the stop process for a running bot.
-             *
-             * @param int $_POST['config_id'] The ID of the bot configuration to stop.
-             * @return JSON A JSON object indicating success or failure of the stop command.
-             * @throws Exception If the configuration ID is invalid or user lacks permission.
-             */
-            case 'bots/stop':
-                if ($method === 'POST') {
-                    $botController->stopBotApi();
-                } else {
-                    http_response_code(405); // Method Not Allowed
-                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
+            } elseif ($api_action === $route_pattern) {
+                if ($method === $allowed_method) {
+                    $matched = true;
+                    call_user_func($controller_method);
+                    break;
                 }
-                break;
+            }
+        }
 
-            /**
-             * POST /api/bots/delete
-             * Deletes a bot configuration from the system.
-             * A bot cannot be deleted if it is currently running.
-             *
-             * @param int $_POST['config_id'] The ID of the bot configuration to delete.
-             * @return JSON A JSON object indicating success or failure of the deletion.
-             * @throws Exception If the bot is running, configuration is not found, or user lacks permission.
-             */
-            case 'bots/delete':
-                if ($method === 'POST') {
-                    $botController->handleDeleteConfig();
-                } else {
-                    http_response_code(405); // Method Not Allowed
-                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
-                }
-                break;
-
-            /**
-             * POST /api/bots/update-config
-             * Updates an existing bot's configuration parameters.
-             *
-             * @param array $_POST Expected updated configuration data (e.g., name, symbol, leverage).
-             * @return JSON A JSON object indicating success or failure of the update.
-             * @throws Exception If configuration is not found or user lacks permission.
-             */
-            case 'bots/update-config':
-                if ($method === 'POST') {
-                    $botController->handleUpdateConfig();
-                } else {
-                    http_response_code(405); // Method Not Allowed
-                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
-                }
-                break;
-
-            /**
-             * POST /api/bots/update-strategy
-             * Updates the trading strategy (JSON directives) for a specific bot.
-             *
-             * @param string $_POST['strategy_json'] The new strategy directives in JSON format.
-             * @param int $_POST['strategy_id'] The ID of the strategy to update.
-             * @return JSON A JSON object indicating success or failure of the strategy update.
-             * @throws Exception If JSON format is invalid, strategy is not found, or user lacks permission.
-             */
-            case 'bots/update-strategy':
-                if ($method === 'POST') {
-                    $botController->handleUpdateStrategy();
-                } else {
-                    http_response_code(405); // Method Not Allowed
-                    echo json_encode(['status' => 'error', 'message' => 'Method not allowed. Use POST.']);
-                }
-                break;
-
-            default:
-                // Handle cases where no matching API endpoint is found.
-                http_response_code(404);
-                echo json_encode(['status' => 'error', 'message' => 'API endpoint not found.']);
-                exit;
+        if (!$matched) {
+            http_response_code(404);
+            echo json_encode(['status' => 'error', 'message' => 'API endpoint not found or method not allowed.']);
         }
     } catch (Throwable $e) {
-        // Catch any exceptions during API request processing and return a 500 Internal Server Error.
-        error_log("API Error on {$path}: " . $e->getMessage()); // Log the error for debugging
+        error_log("API Error on {$path}: " . $e->getMessage());
         http_response_code(500);
         echo json_encode(['status' => 'error', 'message' => 'API Error: ' . $e->getMessage()]);
     }
-    exit; // Terminate script execution after handling API request to prevent further processing.
+    exit;
 }
 
 /**

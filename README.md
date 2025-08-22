@@ -75,6 +75,7 @@ graph TD
 
 **Component Descriptions:**
 
+*   **BaseController (Abstract Class)**: Provides common functionalities like authentication (`checkAuth()`) and template rendering (`render()`) for other controllers, reducing code duplication.
 *   **AiTradingBotFutures (Core Class)**: The central orchestrator, a stateful PHP class that manages the bot's entire lifecycle, delegating tasks, and handling all logic, API interactions, and AI decision-making.
 *   **State Machine**: The heart of the bot, a single `$botState` property dictates permissible actions at any moment, preventing race conditions and ensuring a logical, safe operational flow.
 *   **ReactPHP Event Loop**: Provides the asynchronous foundation, enabling non-blocking I/O for concurrent network operations (HTTP requests and WebSockets) and efficient timer management.
@@ -83,6 +84,8 @@ graph TD
 *   **Database (MySQL/MariaDB)**: Critical for persistence and state management, storing configurations, encrypted API keys, and comprehensive logs of orders, AI interactions, and runtime statuses.
 *   **AI Integration**: Manages communication with the Gemini AI model, including prompt construction, API requests, and parsing AI responses.
 *   **Logging**: Utilizes Monolog for structured logging of all bot activities, including trades, AI interactions, and state changes, to both standard output and the database.
+*   **Logging**: Utilizes Monolog for structured logging of all bot activities, including trades, AI interactions, and state changes, to both standard output and the database.
+*   **Router (router.php)**: The central routing mechanism, now with a streamlined, array-based definition for API routes and centralized error handling, directing requests to appropriate controller methods.
 
 ## Core Bot Logic (State-Driven Lifecycle)
 
@@ -450,6 +453,7 @@ The AI's behavior is heavily influenced by its strategy directives, stored as JS
 │   ├── Controllers/
 │   │   ├── ApiKeyController.php
 │   │   ├── AuthController.php
+│   │   ├── BaseController.php  # New: Provides common controller functionalities
 │   │   └── BotController.php
 │   └── Services/
 │       └── Database.php

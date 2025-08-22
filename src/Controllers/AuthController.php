@@ -3,9 +3,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Services\Database;
 use App\Services\MailService;
-use PDO;
 use PDOException;
 use App\Services\RecaptchaService;
 use Exception; // Explicitly import Exception for clarity
@@ -19,19 +17,8 @@ use Exception; // Explicitly import Exception for clarity
  * for data persistence and security, and MailService for sending welcome emails.
  */
 
-class AuthController
+class AuthController extends BaseController
 {
-    private PDO $pdo;
-
-    /**
-     * AuthController constructor.
-     * Initializes the PDO database connection.
-     */
-    public function __construct()
-    {
-        $this->pdo = Database::getConnection();
-    }
-
     /**
      * Displays the login page.
      * If the user is already logged in, they are redirected to the dashboard.
@@ -41,6 +28,8 @@ class AuthController
     public function showLogin(): void
     {
         // Redirect to dashboard if user is already authenticated.
+        // Using checkAuth from BaseController, but for showLogin, we want to redirect if *already* logged in.
+        // So, we keep this specific check here.
         if (isset($_SESSION['user_id'])) {
             header('Location: /dashboard');
             exit;
@@ -218,26 +207,6 @@ class AuthController
         exit;
     }
 
-    /**
-     * Renders a specified template, injecting common layout variables.
-     * This private helper method ensures consistent page rendering.
-     *
-     * @param string $template The name of the template file (e.g., 'login', 'dashboard').
-     * @param array $data An associative array of data to extract and make available to the template.
-     * @return void
-     */
-    private function render(string $template, array $data = []): void
-    {
-        extract($data); // Extract data array into individual variables for the template.
-        $current_user_id = $_SESSION['user_id'] ?? null;
-        $username_for_header = $_SESSION['username'] ?? null;
-        $view = $template; // Used by layout.php to highlight the active navigation item.
-
-        ob_start(); // Start output buffering to capture template content.
-        require __DIR__ . "/../../templates/{$template}.php"; // Include the specific template.
-        $content = ob_get_clean(); // Get the buffered content.
-        require __DIR__ . "/../../templates/layout.php"; // Include the main layout.
-    }
 
     /**
      * Renders the landing page of the application.
