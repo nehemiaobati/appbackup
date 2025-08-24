@@ -373,14 +373,24 @@ class BotController extends BaseController
      * Uses BotService to fetch data.
      * Returns a JSON response.
      *
-     * @param int $config_id The ID of the bot configuration.
      * @return void Echoes JSON response and exits.
      */
-    public function getBotOverviewApi(int $config_id): void
+    public function getBotOverviewApi(): void
     {
         $this->checkAuth();
         $current_user_id = $_SESSION['user_id'];
         $response = ['status' => 'error', 'message' => 'Invalid action or permission denied.'];
+
+        // Retrieve and validate the bot configuration ID from GET parameters.
+        $config_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+
+        if ($config_id === false || $config_id <= 0) {
+            http_response_code(400); // Bad Request
+            $response['message'] = 'A valid Bot Configuration ID is required.';
+            header('Content-Type: application/json');
+            echo json_encode($response);
+            exit;
+        }
 
         try {
             session_write_close(); // Close session to prevent blocking other requests.
