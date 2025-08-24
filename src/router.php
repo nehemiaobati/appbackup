@@ -264,6 +264,22 @@ switch ($path) {
         $paystackController->verifyPayment();
         break;
 
+    case '/admin/users':
+        $adminController = new App\Controllers\AdminController(); // Instantiate AdminController
+        $adminController->showUsersAndBalances();
+        break;
+
+    case '/admin/delete-user':
+        if ($method === 'POST') {
+            $adminController = new App\Controllers\AdminController(); // Instantiate AdminController
+            $adminController->handleDeleteUser();
+        } else {
+            $_SESSION['error_message'] = "Invalid request for user deletion.";
+            header('Location: /admin/users');
+            exit;
+        }
+        break;
+
     default:
         /**
          * Dynamic Routes

@@ -75,7 +75,7 @@ class AuthController extends BaseController
         }
 
         // Fetch user from database using prepared statement to prevent SQL injection.
-        $stmt = $this->pdo->prepare("SELECT id, username, email, password_hash FROM users WHERE username = ?");
+        $stmt = $this->pdo->prepare("SELECT id, username, email, password_hash, role FROM users WHERE username = ?");
         $stmt->execute([$username]);
         $user = $stmt->fetch();
 
@@ -90,6 +90,7 @@ class AuthController extends BaseController
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['user_email'] = $user['email']; // Store email for potential future use (e.g., pre-filling forms).
+            $_SESSION['user_role'] = $user['role']; // Store user role in session
             header('Location: /dashboard');
             exit;
         } else {

@@ -54,6 +54,7 @@ abstract class BaseController
         extract($data); // Extract data array into individual variables for the template.
         $current_user_id = $_SESSION['user_id'] ?? null;
         $username_for_header = $_SESSION['username'] ?? null;
+        $user_role = $_SESSION['user_role'] ?? 'guest'; // Pass user role to layout
         $view = $template; // Used by layout.php to highlight the active navigation item.
 
         ob_start(); // Start output buffering to capture template content.

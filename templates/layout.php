@@ -47,6 +47,9 @@ $balance_error_message = $balance_error_message ?? '';
           <li class="nav-item"><a href="/dashboard" class="nav-link <?= in_array($view, ['dashboard', 'create_config', 'bot_detail']) ? 'active' : '' ?>"><i class="bi bi-gear-wide-connected"></i> Bots Dashboard</a></li>
           <li class="nav-item"><a href="/api-keys" class="nav-link <?= $view === 'api_keys' ? 'active' : '' ?>"><i class="bi bi-key-fill"></i> API Keys</a></li>
           <li class="nav-item"><a href="/paystack-payment" class="nav-link <?= $view === 'paystack_payment' ? 'active' : '' ?>"><i class="bi bi-credit-card-fill"></i> Paystack Payment</a></li>
+          <?php if (isset($user_role) && $user_role === 'admin'): ?>
+            <li class="nav-item"><a href="/admin/users" class="nav-link <?= $view === 'admin_users' ? 'active' : '' ?>"><i class="bi bi-person-gear"></i> Admin Users</a></li>
+          <?php endif; ?>
           <li class="nav-item"><a href="#" class="nav-link disabled"><i class="bi bi-wrench-adjustable-circle"></i> Settings</a></li>
         </ul>
         <?= $content ?>
